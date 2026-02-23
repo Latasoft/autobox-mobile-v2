@@ -316,16 +316,16 @@ export default function UserInspectionDetailScreen() {
           </View>
           <View style={styles.cardContent}>
             <Text style={styles.vehicleTitle}>
-              {inspection.publicacion?.vehiculo?.marca} {inspection.publicacion?.vehiculo?.modelo} {inspection.publicacion?.vehiculo?.anio}
+              {(inspection.vehiculo || inspection.publicacion?.vehiculo)?.marca} {(inspection.vehiculo || inspection.publicacion?.vehiculo)?.modelo} {(inspection.vehiculo || inspection.publicacion?.vehiculo)?.anio}
             </Text>
-            <Text style={styles.vehicleSubtitle}>Patente: {inspection.publicacion?.vehiculo?.patente}</Text>
+            <Text style={styles.vehicleSubtitle}>Patente: {(inspection.vehiculo || inspection.publicacion?.vehiculo)?.patente || 'Sin patente'}</Text>
             
             <View style={styles.infoRow}>
               <Ionicons name="calendar-outline" size={16} color="#666" />
               <Text style={styles.infoText}>
                 {inspection.fechaCompletada 
                   ? `Realizada: ${new Date(inspection.fechaCompletada).toLocaleString()}`
-                  : `Programada: ${new Date(inspection.fechaProgramada || inspection.createdAt).toLocaleDateString()}`
+                  : `Programada: ${new Date(inspection.fechaProgramada || inspection.fechaCreacion).toLocaleDateString()}`
                 }
               </Text>
             </View>
@@ -338,20 +338,20 @@ export default function UserInspectionDetailScreen() {
                     Mecánico: {inspection.mecanico.primerNombre} {inspection.mecanico.primerApellido}
                   </Text>
                 </View>
-                {inspection.mecanico.rating !== undefined && (
+                {inspection.mecanico.averageRating !== undefined && (
                   <View style={styles.mechanicRatingRow}>
                     <View style={styles.mechanicRatingStars}>
                       {[1, 2, 3, 4, 5].map((star) => (
                         <Ionicons
                           key={star}
-                          name={inspection.mecanico!.rating! >= star ? 'star' : 'star-outline'}
+                          name={inspection.mecanico!.averageRating! >= star ? 'star' : 'star-outline'}
                           size={14}
                           color="#FFC107"
                         />
                       ))}
                     </View>
                     <Text style={styles.mechanicRatingValue}>
-                      {Number(inspection.mecanico.rating).toFixed(1)}
+                      {Number(inspection.mecanico.averageRating).toFixed(1)}
                     </Text>
                     <Text style={styles.mechanicRatingLabel}> calificación del mecánico</Text>
                   </View>

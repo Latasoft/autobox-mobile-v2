@@ -4,7 +4,7 @@ export interface Inspection {
   publicacionId?: string;
   horarioId?: number;
   mecanicoId?: string;
-  estado_insp: 'Pendiente' | 'Confirmada' | 'En_sucursal' | 'Finalizada' | 'Rechazada' | 'Postergada';
+  estado_insp: 'Pendiente' | 'Confirmada' | 'En_sucursal' | 'Finalizada' | 'Rechazada' | 'Postergada' | 'Cancelada';
   estado_pago: 'Confirmado' | 'Incompleto' | 'Cancelado';
   fechaProgramada?: string;
   fechaCompletada?: string;
@@ -25,12 +25,21 @@ export interface Inspection {
     telefono?: number;
   };
   
+  /** Mechanic's global average rating — populated by merging GET /mechanics/:id/rating response */
+  averageRating?: number;
+  totalRatings?: number;
+
   mecanico?: {
     id: string;
     primerNombre: string;
     primerApellido: string;
     email: string;
-    rating?: number;
+    /**
+     * averageRating is NOT returned by the backend on the mecanico relation.
+     * Callers must fetch GET /mechanics/:id/rating and merge it here manually.
+     */
+    averageRating?: number;
+    totalRatings?: number;
   };
   
   publicacion?: {

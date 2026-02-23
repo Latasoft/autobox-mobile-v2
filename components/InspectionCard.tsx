@@ -21,6 +21,7 @@ export const InspectionCard: React.FC<InspectionCardProps> = ({ inspection, onPr
       case 'Finalizada': return '#4CAF50';
       case 'Rechazada': return '#F44336';
       case 'Postergada': return '#FFC107';
+      case 'Cancelada': return '#795548';
       default: return '#9E9E9E';
     }
   };
@@ -95,11 +96,11 @@ export const InspectionCard: React.FC<InspectionCardProps> = ({ inspection, onPr
       <View style={styles.infoRow}>
         <Ionicons name="person" size={18} color="#666" />
         <Text style={styles.infoText}>Mecánico: {mechanicName}</Text>
-        {inspection.mecanico?.rating !== undefined && (
+        {inspection.mecanico?.averageRating !== undefined && (
           <View style={styles.mechanicRatingInline}>
             <Ionicons name="star" size={13} color="#FFC107" />
             <Text style={styles.mechanicRatingText}>
-              {Number(inspection.mecanico.rating).toFixed(1)}
+              {Number(inspection.mecanico.averageRating).toFixed(1)}
             </Text>
           </View>
         )}
