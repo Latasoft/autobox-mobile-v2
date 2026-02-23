@@ -5,6 +5,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { Screen } from '../components/ui/Screen';
 import { Button } from '../components/ui/Button';
+import { ShareModal } from '../components/ShareModal';
 import { useVehicleDetail } from '../hooks/useVehicleDetail';
 import { getImageUrl } from '../utils/imageUtils';
 import ttsService from '../services/ttsService';
@@ -26,6 +27,7 @@ export default function VehicleDetailScreen() {
   console.log('🚗 [VehicleDetailScreen] State:', { loading, hasVehicle: !!vehicle });
   
   const [muted, setMuted] = useState(false);
+  const [shareModalVisible, setShareModalVisible] = useState(false);
 
   // Refresh when screen comes into focus
   useFocusEffect(
@@ -131,9 +133,14 @@ export default function VehicleDetailScreen() {
           <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
             <Ionicons name="arrow-back" size={24} color="#FFF" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.likeButton} onPress={toggleLike}>
-            <Ionicons name={isLiked ? "heart" : "heart-outline"} size={28} color={isLiked ? "#F44336" : "#FFF"} />
-          </TouchableOpacity>
+          <View style={styles.topRightActions}>
+            <TouchableOpacity style={styles.shareButton} onPress={() => setShareModalVisible(true)}>
+              <Ionicons name="share-social-outline" size={24} color="#FFF" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.likeButton} onPress={toggleLike}>
+              <Ionicons name={isLiked ? "heart" : "heart-outline"} size={28} color={isLiked ? "#F44336" : "#FFF"} />
+            </TouchableOpacity>
+          </View>
         
           <View style={styles.muteWrap}>
             <TouchableOpacity
@@ -274,6 +281,14 @@ export default function VehicleDetailScreen() {
           </>
         )}
       </View>
+
+      <ShareModal
+        visible={shareModalVisible}
+        onClose={() => setShareModalVisible(false)}
+        vehicleId={vehicle?.id}
+        publicationId={vehicle?.publicationId}
+        vehicleTitle={vehicle ? `${vehicle.marca} ${vehicle.modelo} ${vehicle.anio}` : undefined}
+      />
     </Screen>
   );
 }
@@ -320,17 +335,30 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  likeButton: {
+  topRightActions: {
     position: 'absolute',
     top: 40,
     right: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    zIndex: 10,
+  },
+  shareButton: {
     width: 44,
     height: 44,
     borderRadius: 22,
     backgroundColor: 'rgba(0,0,0,0.4)',
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 10,
+  },
+  likeButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   muteWrap: {
     position: 'absolute',
