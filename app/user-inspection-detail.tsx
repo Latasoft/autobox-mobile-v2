@@ -331,12 +331,32 @@ export default function UserInspectionDetailScreen() {
             </View>
             
             {inspection.mecanico && (
-              <View style={styles.infoRow}>
-                <Ionicons name="person-outline" size={16} color="#666" />
-                <Text style={styles.infoText}>
-                  Mecánico: {inspection.mecanico.primerNombre} {inspection.mecanico.primerApellido}
-                </Text>
-              </View>
+              <>
+                <View style={styles.infoRow}>
+                  <Ionicons name="person-outline" size={16} color="#666" />
+                  <Text style={styles.infoText}>
+                    Mecánico: {inspection.mecanico.primerNombre} {inspection.mecanico.primerApellido}
+                  </Text>
+                </View>
+                {inspection.mecanico.rating !== undefined && (
+                  <View style={styles.mechanicRatingRow}>
+                    <View style={styles.mechanicRatingStars}>
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <Ionicons
+                          key={star}
+                          name={inspection.mecanico!.rating! >= star ? 'star' : 'star-outline'}
+                          size={14}
+                          color="#FFC107"
+                        />
+                      ))}
+                    </View>
+                    <Text style={styles.mechanicRatingValue}>
+                      {Number(inspection.mecanico.rating).toFixed(1)}
+                    </Text>
+                    <Text style={styles.mechanicRatingLabel}> calificación del mecánico</Text>
+                  </View>
+                )}
+              </>
             )}
 
             {/* Score Display */}
@@ -738,6 +758,27 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#999',
     fontStyle: 'italic',
+  },
+  mechanicRatingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+    marginLeft: 24,
+  },
+  mechanicRatingStars: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 4,
+  },
+  mechanicRatingValue: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#FFA000',
+    marginRight: 2,
+  },
+  mechanicRatingLabel: {
+    fontSize: 12,
+    color: '#888',
   },
   answerImage: {
     width: '100%',

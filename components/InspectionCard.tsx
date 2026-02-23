@@ -95,6 +95,14 @@ export const InspectionCard: React.FC<InspectionCardProps> = ({ inspection, onPr
       <View style={styles.infoRow}>
         <Ionicons name="person" size={18} color="#666" />
         <Text style={styles.infoText}>Mecánico: {mechanicName}</Text>
+        {inspection.mecanico?.rating !== undefined && (
+          <View style={styles.mechanicRatingInline}>
+            <Ionicons name="star" size={13} color="#FFC107" />
+            <Text style={styles.mechanicRatingText}>
+              {Number(inspection.mecanico.rating).toFixed(1)}
+            </Text>
+          </View>
+        )}
       </View>
 
       {inspection.fechaProgramada && (
@@ -234,5 +242,21 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     fontSize: 14,
     color: '#555',
+    flex: 1,
+  },
+  mechanicRatingInline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 6,
+    backgroundColor: '#FFF8E1',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  mechanicRatingText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#FFA000',
+    marginLeft: 2,
   },
 });

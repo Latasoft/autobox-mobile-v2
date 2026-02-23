@@ -30,6 +30,7 @@ export interface Inspection {
     primerNombre: string;
     primerApellido: string;
     email: string;
+    rating?: number;
   };
   
   publicacion?: {
