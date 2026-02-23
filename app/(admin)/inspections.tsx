@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -13,14 +13,16 @@ import {
   ScrollView,
   Image,
   Dimensions,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams, router } from 'expo-router';
-import adminService, { AdminInspection, Mechanic } from '../../services/adminService';
+import adminService, { AdminInspection, Mechanic, Sede } from '../../services/adminService';
 import apiService from '../../services/apiService';
 import { Screen } from '../../components/ui/Screen';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { InspectionCard } from '../../components/admin/InspectionCard';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 const { width } = Dimensions.get('window');
 
@@ -30,6 +32,17 @@ export default function AdminInspectionsScreen() {
   const [inspections, setInspections] = useState<AdminInspection[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Search, Sort & Filter State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
+  const [dateFrom, setDateFrom] = useState<Date | null>(null);
+  const [dateTo, setDateTo] = useState<Date | null>(null);
+  const [showDateFromPicker, setShowDateFromPicker] = useState(false);
+  const [showDateToPicker, setShowDateToPicker] = useState(false);
+  const [selectedSede, setSelectedSede] = useState<string>('');
+  const [sedes, setSedes] = useState<Sede[]>([]);
+  const [showFilters, setShowFilters] = useState(false);
 
   // Details Modal State
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -56,6 +69,102 @@ export default function AdminInspectionsScreen() {
       }
     }
   }, [highlightId, inspections]);
+
+  // Load sedes for filter
+  useEffect(() => {
+    const loadSedes = async () => {
+      try {
+        const data = await adminService.getSedes();
+        setSedes(data);
+      } catch (error) {
+        console.error('Error loading sedes:', error);
+      }
+    };
+    loadSedes();
+  }, []);
+
+  // Filtered and sorted inspections
+  const filteredInspections = useMemo(() => {
+    let result = [...inspections];
+
+    // Text search: by mechanic name, vehicle patent, brand, model
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(i =>
+        (i.mechanicName && i.mechanicName.toLowerCase().includes(q)) ||
+        (i.vehiclePatent && i.vehiclePatent.toLowerCase().includes(q)) ||
+        (i.vehicleBrand && i.vehicleBrand.toLowerCase().includes(q)) ||
+        (i.vehicleModel && i.vehicleModel.toLowerCase().includes(q)) ||
+        (i.inspectionNumber && i.inspectionNumber.toLowerCase().includes(q))
+      );
+    }
+
+    // Date range filter
+    if (dateFrom) {
+      const from = new Date(dateFrom);
+      from.setHours(0, 0, 0, 0);
+      result = result.filter(i => {
+        const d = new Date(i.scheduledDate);
+        return d >= from;
+      });
+    }
+    if (dateTo) {
+      const to = new Date(dateTo);
+      to.setHours(23, 59, 59, 999);
+      result = result.filter(i => {
+        const d = new Date(i.scheduledDate);
+        return d <= to;
+      });
+    }
+
+    // Sort by date
+    result.sort((a, b) => {
+      const dateA = new Date(a.scheduledDate).getTime();
+      const dateB = new Date(b.scheduledDate).getTime();
+      return sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
+    });
+
+    return result;
+  }, [inspections, searchQuery, sortOrder, dateFrom, dateTo]);
+
+  const handleDeleteInspection = (inspection: AdminInspection) => {
+    Alert.alert(
+      'Eliminar Inspección',
+      `¿Estás seguro de eliminar la inspección ${inspection.inspectionNumber}?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await adminService.deleteInspection(inspection.id);
+              setInspections(prev => prev.filter(i => i.id !== inspection.id));
+              Alert.alert('Éxito', 'Inspección eliminada correctamente');
+            } catch (error: any) {
+              console.error('Error deleting inspection:', error);
+              Alert.alert('Error', error.message || 'No se pudo eliminar la inspección');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const clearFilters = () => {
+    setSearchQuery('');
+    setDateFrom(null);
+    setDateTo(null);
+    setSelectedSede('');
+    setSortOrder('desc');
+  };
+
+  const hasActiveFilters = searchQuery.trim() !== '' || dateFrom !== null || dateTo !== null || selectedSede !== '';
+
+  const formatDateLabel = (date: Date | null) => {
+    if (!date) return '';
+    return date.toLocaleDateString('es-CL');
+  };
 
   const loadInspections = async () => {
     try {
@@ -234,6 +343,91 @@ export default function AdminInspectionsScreen() {
         <Text style={styles.title}>Inspecciones</Text>
       </View>
 
+      {/* Search & Filter Bar */}
+      <View style={styles.filterBar}>
+        <View style={styles.searchRow}>
+          <View style={styles.searchContainer}>
+            <Ionicons name="search" size={18} color="#999" />
+            <TextInput
+              style={styles.filterSearchInput}
+              placeholder="Buscar por mecánico, patente, marca..."
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              autoCapitalize="none"
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <Ionicons name="close-circle" size={18} color="#999" />
+              </TouchableOpacity>
+            )}
+          </View>
+          <TouchableOpacity
+            style={[styles.sortButton, sortOrder === 'asc' && styles.sortButtonActive]}
+            onPress={() => setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+          >
+            <Ionicons name={sortOrder === 'asc' ? 'arrow-up' : 'arrow-down'} size={18} color={sortOrder === 'asc' ? '#FFF' : '#666'} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.filterToggleButton, showFilters && styles.filterToggleButtonActive]}
+            onPress={() => setShowFilters(!showFilters)}
+          >
+            <Ionicons name="options-outline" size={18} color={showFilters ? '#FFF' : '#666'} />
+          </TouchableOpacity>
+        </View>
+
+        {showFilters && (
+          <View style={styles.filtersContainer}>
+            <Text style={styles.filterLabel}>Rango de fecha:</Text>
+            <View style={styles.dateRow}>
+              <TouchableOpacity style={styles.dateButton} onPress={() => setShowDateFromPicker(true)}>
+                <Ionicons name="calendar-outline" size={16} color="#666" />
+                <Text style={styles.dateButtonText}>{dateFrom ? formatDateLabel(dateFrom) : 'Desde'}</Text>
+              </TouchableOpacity>
+              <Text style={styles.dateSeparator}>—</Text>
+              <TouchableOpacity style={styles.dateButton} onPress={() => setShowDateToPicker(true)}>
+                <Ionicons name="calendar-outline" size={16} color="#666" />
+                <Text style={styles.dateButtonText}>{dateTo ? formatDateLabel(dateTo) : 'Hasta'}</Text>
+              </TouchableOpacity>
+            </View>
+
+            {hasActiveFilters && (
+              <TouchableOpacity style={styles.clearFiltersButton} onPress={clearFilters}>
+                <Ionicons name="close-circle-outline" size={16} color="#F44336" />
+                <Text style={styles.clearFiltersText}>Limpiar filtros</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
+        {hasActiveFilters && (
+          <Text style={styles.resultsCount}>{filteredInspections.length} resultado(s)</Text>
+        )}
+      </View>
+
+      {/* Date Pickers */}
+      {showDateFromPicker && (
+        <DateTimePicker
+          value={dateFrom || new Date()}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          onChange={(event, date) => {
+            setShowDateFromPicker(false);
+            if (date) setDateFrom(date);
+          }}
+        />
+      )}
+      {showDateToPicker && (
+        <DateTimePicker
+          value={dateTo || new Date()}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          onChange={(event, date) => {
+            setShowDateToPicker(false);
+            if (date) setDateTo(date);
+          }}
+        />
+      )}
+
       {loading && !refreshing ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#007bff" />
@@ -241,7 +435,7 @@ export default function AdminInspectionsScreen() {
       ) : (
         <FlatList
           ref={flatListRef}
-          data={inspections}
+          data={filteredInspections}
           keyExtractor={(item) => item.id}
           onScrollToIndexFailed={(info) => {
             const wait = new Promise(resolve => setTimeout(resolve, 500));
@@ -254,6 +448,7 @@ export default function AdminInspectionsScreen() {
               inspection={item}
               onPress={() => handleInspectionPress(item)}
               onAssignPress={() => handleAssignMechanic(item)}
+              onDelete={() => handleDeleteInspection(item)}
               onViewResult={() => {
                 router.push({
                   pathname: '/user-inspection-detail',
@@ -270,7 +465,7 @@ export default function AdminInspectionsScreen() {
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyText}>
-                No hay inspecciones registradas
+                {hasActiveFilters ? 'No se encontraron inspecciones con los filtros aplicados' : 'No hay inspecciones registradas'}
               </Text>
             </View>
           }
@@ -535,6 +730,118 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#333',
   },
+  // Filter Bar Styles
+  filterBar: {
+    backgroundColor: '#FFF',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEE',
+  },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  searchContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    height: 40,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  filterSearchInput: {
+    flex: 1,
+    marginLeft: 6,
+    fontSize: 14,
+    color: '#333',
+  },
+  sortButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: '#F5F5F5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  sortButtonActive: {
+    backgroundColor: '#2196F3',
+    borderColor: '#2196F3',
+  },
+  filterToggleButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: '#F5F5F5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  filterToggleButtonActive: {
+    backgroundColor: '#007bff',
+    borderColor: '#007bff',
+  },
+  filtersContainer: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#EEE',
+  },
+  filterLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#555',
+    marginBottom: 6,
+  },
+  dateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  dateButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    gap: 6,
+  },
+  dateButtonText: {
+    fontSize: 13,
+    color: '#555',
+  },
+  dateSeparator: {
+    fontSize: 14,
+    color: '#999',
+  },
+  clearFiltersButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+    gap: 4,
+  },
+  clearFiltersText: {
+    fontSize: 13,
+    color: '#F44336',
+  },
+  resultsCount: {
+    fontSize: 12,
+    color: '#999',
+    marginTop: 6,
+    textAlign: 'right',
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -555,6 +862,7 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 16,
     color: '#666',
+    textAlign: 'center',
   },
   modalOverlay: {
     flex: 1,

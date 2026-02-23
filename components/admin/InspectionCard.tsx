@@ -10,6 +10,7 @@ interface InspectionCardProps {
   onPress: () => void;
   onAssignPress?: () => void;
   onViewResult?: () => void;
+  onDelete?: () => void;
   showMechanic?: boolean;
   style?: any;
 }
@@ -19,6 +20,7 @@ export const InspectionCard: React.FC<InspectionCardProps> = ({
   onPress,
   onAssignPress,
   onViewResult,
+  onDelete,
   showMechanic = true,
   style,
 }) => {
@@ -116,7 +118,6 @@ export const InspectionCard: React.FC<InspectionCardProps> = ({
           <Button
             title="Ver Resultado"
             onPress={(e) => {
-              // e?.stopPropagation(); // Button component might not pass event or handle it differently
               onViewResult();
             }}
             variant="outline"
@@ -132,6 +133,14 @@ export const InspectionCard: React.FC<InspectionCardProps> = ({
             size="small"
             variant="secondary"
           />
+        )}
+        {onDelete && (
+          <TouchableOpacity
+            style={styles.deleteButton}
+            onPress={onDelete}
+          >
+            <Ionicons name="trash-outline" size={18} color="#F44336" />
+          </TouchableOpacity>
         )}
       </View>
     </Card>
@@ -240,5 +249,14 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
+    alignItems: 'center',
+  },
+  deleteButton: {
+    marginLeft: 8,
+    padding: 6,
+    borderRadius: 6,
+    backgroundColor: '#FFF0F0',
+    borderWidth: 1,
+    borderColor: '#FFCDD2',
   },
 });

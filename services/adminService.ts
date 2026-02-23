@@ -899,6 +899,24 @@ class AdminService {
     }
   }
 
+  async deleteInspection(inspectionId: string): Promise<void> {
+    try {
+      const headers = await this.getHeaders();
+      const response = await fetch(`${API_URL}/inspections/${inspectionId}`, {
+        method: 'DELETE',
+        headers,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Error al eliminar la inspección');
+      }
+    } catch (error) {
+      console.error('Error deleteInspection:', error);
+      throw error;
+    }
+  }
+
   async getInspectionRejections(inspectionId: string): Promise<any[]> {
     try {
       const headers = await this.getHeaders();
