@@ -741,8 +741,11 @@ class AdminService {
       const data = await response.json();
       console.log('📋 Datos crudos de inspecciones:', JSON.stringify(data, null, 2));
 
+      // Backend returns { inspections: [...], total: number } — unwrap the array
+      const rawList: any[] = Array.isArray(data) ? data : (data.inspections || []);
+
       // Transformar datos y retornar con marcadores de carga
-      const inspections = data.map((inspection: any) => {
+      const inspections = rawList.map((inspection: any) => {
         const mechanic = inspection.mecanico || inspection.mechanic;
         return {
           id: inspection.id,
@@ -935,10 +938,29 @@ class AdminService {
     }
   }
 
-  async getMechanicInspections(mechanicId: string): Promise<any[]> {
+  async getMechanicInspections(
+    mechanicId: string,
+    params?: {
+      sortBy?: string;
+      order?: 'ASC' | 'DESC';
+      startDate?: string;
+      endDate?: string;
+      status?: string;
+    }
+  ): Promise<any[]> {
     try {
       const headers = await this.getHeaders();
-      const response = await fetch(`${API_URL}/inspections/mechanic/${mechanicId}`, {
+
+      const query = new URLSearchParams();
+      if (params?.sortBy) query.append('sortBy', params.sortBy);
+      if (params?.order) query.append('order', params.order);
+      if (params?.startDate) query.append('startDate', params.startDate);
+      if (params?.endDate) query.append('endDate', params.endDate);
+      if (params?.status) query.append('status', params.status);
+
+      const url = `${API_URL}/inspections/mechanic/${mechanicId}${query.toString() ? `?${query.toString()}` : ''}`;
+
+      const response = await fetch(url, {
         headers,
       });
 

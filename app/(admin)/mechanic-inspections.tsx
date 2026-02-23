@@ -27,17 +27,12 @@ export default function MechanicInspectionsScreen() {
     try {
       if (!mechanicId) return;
       setLoading(true);
-      const data = await adminService.getMechanicInspections(mechanicId as string);
-      
-      const mapStatus = (status: string) => {
-        if (!status) return 'pending';
-        const s = status.toLowerCase();
-        if (s === 'pendiente') return 'pending';
-        if (s === 'confirmada') return 'scheduled';
-        if (s === 'finalizada') return 'completed';
-        if (s === 'rechazada' || s === 'cancelada') return 'cancelled';
-        return s;
-      };
+
+      // Pass current sort order to the backend so server-side sorting also works
+      const data = await adminService.getMechanicInspections(mechanicId as string, {
+        sortBy: 'fechaCreacion',
+        order: sortOrder.toUpperCase() as 'ASC' | 'DESC',
+      });
 
       const mappedData = (data as any[]).map((item: any) => ({
         id: item.id,
@@ -47,11 +42,12 @@ export default function MechanicInspectionsScreen() {
         vehicleBrand: item.vehicle?.brand || item.vehicleBrand || item.publicacion?.vehiculo?.marca || null,
         vehicleModel: item.vehicle?.model || item.vehicleModel || item.publicacion?.vehiculo?.modelo || null,
         mechanicId: item.mechanicId || item.mechanic?.id,
-        mechanicName: item.mechanicName || (item.mechanic 
+        mechanicName: item.mechanicName || (item.mechanic
           ? (`${item.mechanic.primerNombre || item.mechanic.firstName || ''} ${item.mechanic.primerApellido || item.mechanic.lastName || ''}`.trim() || item.mechanic.email || 'Mecánico')
           : null),
         mechanicPhoto: item.mechanicPhoto || item.mechanic?.foto_url || item.mechanic?.profilePhoto || null,
-        status: mapStatus(item.estado_insp || item.status),
+        // Preserve the original backend status value — InspectionCard uses it for color mapping
+        status: item.estado_insp || item.status,
         scheduledDate: item.fechaProgramada || item.scheduledDate || item.fechaCreacion || item.createdAt,
         price: item.valor || item.price || 0,
         paymentStatus: item.estado_pago || item.paymentStatus || 'pending',
@@ -72,7 +68,7 @@ export default function MechanicInspectionsScreen() {
 
   useEffect(() => {
     loadInspections();
-  }, [mechanicId]);
+  }, [mechanicId, sortOrder]);
 
   const onRefresh = async () => {
     setRefreshing(true);

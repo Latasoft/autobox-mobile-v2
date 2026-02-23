@@ -629,7 +629,7 @@ export default function AdminInspectionsScreen() {
               )}
 
               {/* Search Bar */}
-              <View style={styles.searchContainer}>
+              <View style={styles.mechanicSearchContainer}>
                 <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
                 <TextInput
                   style={styles.searchInput}
@@ -908,7 +908,7 @@ const styles = StyleSheet.create({
     color: '#333',
     marginBottom: 4,
   },
-  searchContainer: {
+  mechanicSearchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F5F5F5',
