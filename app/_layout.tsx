@@ -10,7 +10,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     // 1. Register for permissions on startup
-    pushNotificationService.registerForPushNotificationsAsync();
+    pushNotificationService.registerAndSyncPushToken();
 
     // 2. Handle notification clicks
     const subscription = Notifications.addNotificationResponseReceivedListener(response => {

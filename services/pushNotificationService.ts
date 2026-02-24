@@ -2,6 +2,8 @@ import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import * as Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import authService from './authService';
+import apiService from './apiService';
 
 // Configure how notifications behave when the app is in foreground
 Notifications.setNotificationHandler({
@@ -15,10 +17,16 @@ Notifications.setNotificationHandler({
 });
 
 class PushNotificationService {
+  private pushToken: string | null = null;
+
   /**
    * Registers the device for push notifications
    */
   async registerForPushNotificationsAsync() {
+    if (this.pushToken) {
+      return this.pushToken;
+    }
+
     let token;
 
     if (Platform.OS === 'android') {
@@ -55,6 +63,7 @@ class PushNotificationService {
         }
 
         token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+        this.pushToken = token;
         console.log('Expo Push Token:', token);
       } catch (e) {
           console.error("Error fetching push token:", e);
@@ -64,6 +73,37 @@ class PushNotificationService {
     }
 
     return token;
+  }
+
+  /**
+   * Registers and syncs Expo Push Token with backend for authenticated users
+   */
+  async registerAndSyncPushToken(userId?: string) {
+    try {
+      const token = await this.registerForPushNotificationsAsync();
+
+      if (!token) {
+        return null;
+      }
+
+      let targetUserId = userId;
+
+      if (!targetUserId) {
+        const user = await authService.getUser();
+        targetUserId = user?.id as string | undefined;
+      }
+
+      if (targetUserId) {
+        await apiService.updatePushToken(targetUserId, token);
+      } else {
+        console.log('⚠️ Push token generado, pero no hay usuario autenticado para sincronizarlo');
+      }
+
+      return token;
+    } catch (error) {
+      console.error('Error registering and syncing push token:', error);
+      return null;
+    }
   }
 
   /**

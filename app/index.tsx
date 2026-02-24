@@ -36,8 +36,8 @@ export default function Index() {
 
         clearTimeout(safetyTimeout);
 
-        // Register for push notifications in background
-        pushNotificationService.registerForPushNotificationsAsync().catch(err => 
+        // Register and sync push notifications token in background
+        pushNotificationService.registerAndSyncPushToken(user?.id).catch(err => 
           console.error('Error registering push token:', err)
         );
 
