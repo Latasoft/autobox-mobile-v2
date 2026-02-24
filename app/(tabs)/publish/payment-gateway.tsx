@@ -42,6 +42,7 @@ export default function PaymentGatewayScreen() {
   const [isConfirming, setIsConfirming] = useState(false);
   const [pollingAttempts, setPollingAttempts] = useState(0);
   const isCancelledRef = useRef(false);
+  const lastHandledReturnUrlRef = useRef<string | null>(null);
 
   // Debug: Log cambios en webviewVisible y webviewUrl
   useEffect(() => {
@@ -240,6 +241,78 @@ export default function PaymentGatewayScreen() {
     };
   };
 
+  const WEBPAY_CALLBACK_PATH = '/payments/webpay/callback';
+
+  const extractWebPayTokensFromUrl = (url: string): { tokenWs?: string; tbkToken?: string } => {
+    try {
+      const parsedUrl = new URL(url);
+      const tokenWs = parsedUrl.searchParams.get('token_ws') || undefined;
+      const tbkToken = parsedUrl.searchParams.get('TBK_TOKEN') || undefined;
+      return { tokenWs, tbkToken };
+    } catch {
+      const tokenWsMatch = url.match(/[?&]token_ws=([^&]+)/i);
+      const tbkTokenMatch = url.match(/[?&]TBK_TOKEN=([^&]+)/i);
+      return {
+        tokenWs: tokenWsMatch?.[1] ? decodeURIComponent(tokenWsMatch[1]) : undefined,
+        tbkToken: tbkTokenMatch?.[1] ? decodeURIComponent(tbkTokenMatch[1]) : undefined,
+      };
+    }
+  };
+
+  const isWebPayReturnUrl = (url: string): boolean => {
+    return (
+      url.startsWith('autobox://') ||
+      url.includes(WEBPAY_CALLBACK_PATH) ||
+      url.includes('token_ws=') ||
+      url.includes('TBK_TOKEN=')
+    );
+  };
+
+  const waitForPaymentCompletion = async (paymentId: string, attempts = 8, delayMs = 1200): Promise<boolean> => {
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        const paymentRecord = await apiService.get(`/payments/${paymentId}`);
+        if (paymentRecord?.estado === 'Completado') {
+          return true;
+        }
+      } catch (error: any) {
+        logPaymentEvent('Error checking payment status while waiting completion', { paymentId, attempt, error: error?.message }, 'warn');
+      }
+
+      if (attempt < attempts) {
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    }
+
+    return false;
+  };
+
+  const handleWebPayReturnFromWebView = (url: string) => {
+    if (lastHandledReturnUrlRef.current === url) {
+      return;
+    }
+    lastHandledReturnUrlRef.current = url;
+
+    logPaymentEvent('WebView detected payment return URL', { url: url.substring(0, 120) });
+    setWebviewVisible(false);
+
+    const { tokenWs, tbkToken } = extractWebPayTokensFromUrl(url);
+
+    if (tbkToken) {
+      void markPaymentCancelled(undefined, 'Transacción anulada por WebPay o por el usuario en el banco');
+      return;
+    }
+
+    if (tokenWs) {
+      void checkPendingPayment(tokenWs);
+      return;
+    }
+
+    setTimeout(() => {
+      void checkPendingPayment();
+    }, 1200);
+  };
+
   const handleAppStateChange = async (nextAppState: string) => {
     if (nextAppState === 'active' && isWaitingForPayment) {
       console.log('App volvió del navegador, verificando pago...');
@@ -247,7 +320,7 @@ export default function PaymentGatewayScreen() {
     }
   };
 
-  const checkPendingPayment = async () => {
+  const checkPendingPayment = async (directToken?: string) => {
     // Prevenir confirmaciones concurrentes o si fue cancelado
     if (isConfirming || isCancelledRef.current) {
       logPaymentEvent('Skipping payment check', { isConfirming, isCancelled: isCancelledRef.current }, 'warn');
@@ -261,7 +334,7 @@ export default function PaymentGatewayScreen() {
       
       setLoading(true);
       setPaymentStatus('verifying');
-      logPaymentEvent('Checking pending payment');
+      logPaymentEvent('Checking pending payment', { hasDirectToken: !!directToken });
       
       const savedPaymentId = await AsyncStorage.getItem('waitingForPayment');
       if (!savedPaymentId) {
@@ -386,19 +459,26 @@ export default function PaymentGatewayScreen() {
       }
 
       // FLUJO NORMAL: Publicaciones e inspecciones
-      // Verificar con reintentos
-      const response = await executeWithRetry(
-        () => apiService.get('/payments/webpay/check-pending'),
-        'check_pending_payment'
-      );
+      let tokenToConfirm: string | undefined = directToken;
+
+      if (!tokenToConfirm) {
+        const response = await executeWithRetry(
+          () => apiService.get('/payments/webpay/check-pending'),
+          'check_pending_payment'
+        );
+
+        if (response?.hasPending && response?.token) {
+          tokenToConfirm = response.token;
+        }
+      }
       
-      if (response && response.hasPending && response.token) {
-        logPaymentEvent('Pending payment found', { token: response.token.substring(0, 10) + '...' });
+      if (tokenToConfirm) {
+        logPaymentEvent('Pending payment found', { token: tokenToConfirm.substring(0, 10) + '...' });
 
         // Confirmar el pago (sin reintentos automáticos para evitar 422)
         let result;
         try {
-          result = await apiService.confirmWebPayTransaction(response.token);
+          result = await apiService.confirmWebPayTransaction(tokenToConfirm);
         } catch (confirmError: any) {
           // Si es error 422, verificar el estado del pago en lugar de fallar
           if (confirmError?.message?.includes('422') || 
@@ -570,6 +650,7 @@ export default function PaymentGatewayScreen() {
     // --- AGREGA ESTO ---
     setWebviewHtml(null); // Limpia basura anterior
     setWebviewUrl(null);  // Limpia URL anterior
+    lastHandledReturnUrlRef.current = null;
     // -------------------
     isCancelledRef.current = false;
     
@@ -882,22 +963,14 @@ export default function PaymentGatewayScreen() {
       // RESTO DE CASOS: Publicaciones e inspecciones
       // Safety: ensure payment is confirmed in backend before creating any entities
       if (paymentId) {
-        try {
-          const paymentRecord = await apiService.get(`/payments/${paymentId}`);
-          if (!paymentRecord || (paymentRecord.estado && paymentRecord.estado !== 'Completado')) {
-            console.warn('Payment not completed according to backend:', paymentRecord);
-            setPaymentStatus('cancelled');
-            setIsWaitingForPayment(false);
-            await AsyncStorage.removeItem('waitingForPayment');
-            Alert.alert('Pago no confirmado', 'El pago no fue confirmado. No se creó la publicación ni el vehículo.');
-            return;
-          }
-        } catch (e) {
-          console.error('Error comprobando estado de pago en backend:', e);
-          setPaymentStatus('cancelled');
-          setIsWaitingForPayment(false);
-          await AsyncStorage.removeItem('waitingForPayment');
-          Alert.alert('Pago no confirmado', 'No se pudo verificar el estado del pago. No se creó la publicación ni el vehículo.');
+        const isCompleted = await waitForPaymentCompletion(paymentId);
+        if (!isCompleted) {
+          logPaymentEvent('Payment not marked as completed yet after authorization', { paymentId }, 'warn');
+          setReconciliationNeeded(true);
+          setPollingAttempts(0);
+          setPaymentStatus('verifying');
+          setIsWaitingForPayment(true);
+          Alert.alert('Verificando pago', 'Tu pago fue autorizado, pero aún estamos confirmando el estado final. Esto puede tomar unos segundos.');
           return;
         }
       }
@@ -1326,11 +1399,9 @@ export default function PaymentGatewayScreen() {
                         const url = request.url;
                         console.log('⚡ Navegando a:', url);
 
-                        // Si es el esquema de la app -> ES EL FINAL
-                        if (url.startsWith('autobox://')) {
-                            setWebviewVisible(false);
-                            checkPendingPayment();
-                            return false; // No navegar, cerrar.
+                      if (isWebPayReturnUrl(url)) {
+                        handleWebPayReturnFromWebView(url);
+                        return false;
                         }
                         
                         // DEJAR PASAR TODO LO DEMÁS (Transbank, Redirecciones, etc.)
@@ -1342,9 +1413,8 @@ export default function PaymentGatewayScreen() {
                         // Solo actualizamos el debug visual
                         // setWebviewUrl(navState.url); 
                         
-                        if (navState.url.startsWith('autobox://')) {
-                            setWebviewVisible(false);
-                            checkPendingPayment();
+                      if (isWebPayReturnUrl(navState.url)) {
+                        handleWebPayReturnFromWebView(navState.url);
                         }
                     }}
                 />
