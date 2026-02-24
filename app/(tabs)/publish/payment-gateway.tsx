@@ -263,7 +263,6 @@ export default function PaymentGatewayScreen() {
     return (
       url.startsWith('autobox://') ||
       url.includes(WEBPAY_CALLBACK_PATH) ||
-      url.includes('token_ws=') ||
       url.includes('TBK_TOKEN=')
     );
   };
@@ -337,28 +336,28 @@ export default function PaymentGatewayScreen() {
       logPaymentEvent('Checking pending payment', { hasDirectToken: !!directToken });
       
       const savedPaymentId = await AsyncStorage.getItem('waitingForPayment');
-      if (!savedPaymentId) {
+      const serviceTypeStr = Array.isArray(serviceType) ? serviceType[0] : serviceType;
+
+      if (!savedPaymentId && !(serviceTypeStr === 'wallet_deposit' && directToken)) {
         logPaymentEvent('No pending payment found', {}, 'warn');
         setLoading(false);
         setIsConfirming(false);
         return;
       }
-
-      const serviceTypeStr = Array.isArray(serviceType) ? serviceType[0] : serviceType;
       
       // CASO ESPECIAL: WALLET DEPOSIT - usar endpoint diferente
       if (serviceTypeStr === 'wallet_deposit') {
         logPaymentEvent('Checking wallet deposit status');
         
         let isConfirmed = false;
+        const tokenFromStorage = savedPaymentId ? await AsyncStorage.getItem(`payment_${savedPaymentId}_token`) : null;
+        const tokenForWalletConfirmation = directToken || tokenFromStorage;
 
         // Intentar confirmar si tenemos el token guardado
-        if (savedPaymentId) {
+        if (tokenForWalletConfirmation) {
             try {
-                const token = await AsyncStorage.getItem(`payment_${savedPaymentId}_token`);
-                if (token) {
-                    console.log('🔵 [Wallet Check] Intentando confirmar con token:', token.substring(0, 10));
-                    const result = await walletService.confirmTransbankDeposit(token, savedPaymentId);
+                    console.log('🔵 [Wallet Check] Intentando confirmar con token:', tokenForWalletConfirmation.substring(0, 10));
+                    const result = await walletService.confirmTransbankDeposit(tokenForWalletConfirmation, savedPaymentId || undefined);
                     console.log('✅ [Wallet Check] Resultado confirmación:', result);
                     
                     // Verificar estructura de respuesta (puede venir anidada en 'data' o directa)
@@ -382,12 +381,6 @@ export default function PaymentGatewayScreen() {
                         await AsyncStorage.removeItem('waitingForPayment');
                         if (savedPaymentId) await AsyncStorage.removeItem(`payment_${savedPaymentId}_token`);
                         return;
-                    }
-                } else {
-                    // Si no hay token, verificamos si el saldo cambió? O asumimos éxito si el usuario volvió?
-                    // Mejor verificar transacciones recientes
-                    console.log('⚠️ [Wallet Check] No hay token guardado, verificando transacciones recientes...');
-                    // await new Promise(resolve => setTimeout(resolve, 2000)); // Esperar propagación
                 }
             } catch (e: any) {
                 console.warn('⚠️ [Wallet Check] Error confirmando:', e);
@@ -396,6 +389,8 @@ export default function PaymentGatewayScreen() {
                     isConfirmed = true;
                 }
             }
+                } else {
+                  console.log('⚠️ [Wallet Check] No hay token para confirmar depósito.');
         }
         
         // Refrescar saldo siempre

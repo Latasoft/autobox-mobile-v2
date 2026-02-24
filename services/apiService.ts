@@ -21,8 +21,11 @@ class ApiService {
         console.log('🎫 [API] requiresAuth=false, skipping token');
       }
 
+      const requestBody = (options as any)?.body;
+      const isFormDataBody = typeof FormData !== 'undefined' && requestBody instanceof FormData;
+
       const headers = {
-        'Content-Type': 'application/json',
+        ...(isFormDataBody ? {} : { 'Content-Type': 'application/json' }),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...((options as any)?.headers),
       };
@@ -81,17 +84,19 @@ class ApiService {
 
   // Método POST genérico
   async post(endpoint: string, data?: any) {
+    const isFormData = typeof FormData !== 'undefined' && data instanceof FormData;
     return this.fetch(endpoint, {
       method: 'POST',
-      body: data ? JSON.stringify(data) : undefined,
+      body: isFormData ? data : (data ? JSON.stringify(data) : undefined),
     });
   }
 
   // Método PUT genérico
   async put(endpoint: string, data?: any) {
+    const isFormData = typeof FormData !== 'undefined' && data instanceof FormData;
     return this.fetch(endpoint, {
       method: 'PUT',
-      body: data ? JSON.stringify(data) : undefined,
+      body: isFormData ? data : (data ? JSON.stringify(data) : undefined),
     });
   }
 
@@ -111,9 +116,10 @@ class ApiService {
 
   // Método PATCH genérico
   async patch(endpoint: string, data?: any) {
+    const isFormData = typeof FormData !== 'undefined' && data instanceof FormData;
     return this.fetch(endpoint, {
       method: 'PATCH',
-      body: data ? JSON.stringify(data) : undefined,
+      body: isFormData ? data : (data ? JSON.stringify(data) : undefined),
     });
   }
 

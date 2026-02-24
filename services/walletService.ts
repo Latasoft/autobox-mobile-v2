@@ -125,9 +125,14 @@ class WalletService {
   async confirmTransbankDeposit(token: string, paymentId?: string) {
     try {
       const authToken = await authService.getToken();
-      // Enviar tanto por Query param como por Body para asegurar compatibilidad
-      const pId = paymentId || '0';
-      const url = `${API_URL}/wallet/deposit/transbank/confirm?token=${encodeURIComponent(token)}&paymentId=${encodeURIComponent(pId)}`;
+      // Enviar token siempre y paymentId solo si existe
+      const normalizedPaymentId = typeof paymentId === 'string' ? paymentId.trim() : '';
+      const hasPaymentId = normalizedPaymentId.length > 0;
+      const queryParams = hasPaymentId
+        ? `token=${encodeURIComponent(token)}&paymentId=${encodeURIComponent(normalizedPaymentId)}`
+        : `token=${encodeURIComponent(token)}`;
+      const url = `${API_URL}/wallet/deposit/transbank/confirm?${queryParams}`;
+      const requestBody = hasPaymentId ? { token, paymentId: normalizedPaymentId } : { token };
       
       const response = await fetch(url, {
         method: 'POST',
@@ -135,7 +140,7 @@ class WalletService {
           'Authorization': `Bearer ${authToken}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ token, paymentId: pId }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
