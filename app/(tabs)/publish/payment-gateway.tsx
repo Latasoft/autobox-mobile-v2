@@ -295,9 +295,20 @@ export default function PaymentGatewayScreen() {
     logPaymentEvent('WebView detected payment return URL', { url: url.substring(0, 120) });
     setWebviewVisible(false);
 
+    // Extraer status del deep link (autobox://payment-result?status=...)
+    let deepLinkStatus: string | undefined;
+    try {
+      const parsedUrl = new URL(url);
+      deepLinkStatus = parsedUrl.searchParams.get('status') || undefined;
+    } catch {
+      const statusMatch = url.match(/[?&]status=([^&]+)/i);
+      deepLinkStatus = statusMatch?.[1] ? decodeURIComponent(statusMatch[1]) : undefined;
+    }
+
     const { tokenWs, tbkToken } = extractWebPayTokensFromUrl(url);
 
-    if (tbkToken) {
+    // Pago anulado: por TBK_TOKEN (cancela en banco) o por status rejected/error/aborted
+    if (tbkToken || deepLinkStatus === 'rejected' || deepLinkStatus === 'error' || deepLinkStatus === 'aborted') {
       void markPaymentCancelled(undefined, 'Transacción anulada por WebPay o por el usuario en el banco');
       return;
     }
@@ -307,6 +318,7 @@ export default function PaymentGatewayScreen() {
       return;
     }
 
+    // Si llegó con status=success pero sin token, verificar igual
     setTimeout(() => {
       void checkPendingPayment();
     }, 1200);

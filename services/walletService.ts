@@ -125,26 +125,31 @@ class WalletService {
   async confirmTransbankDeposit(token: string, paymentId?: string) {
     try {
       const authToken = await authService.getToken();
-      // Enviar token siempre y paymentId solo si existe
+      // Normalizar token: Transbank puede enviarlo como token_ws o token raw
+      const normalizedToken = typeof token === 'string' ? token.trim() : '';
       const normalizedPaymentId = typeof paymentId === 'string' ? paymentId.trim() : '';
-      const hasPaymentId = normalizedPaymentId.length > 0;
-      const queryParams = hasPaymentId
-        ? `token=${encodeURIComponent(token)}&paymentId=${encodeURIComponent(normalizedPaymentId)}`
-        : `token=${encodeURIComponent(token)}`;
-      const url = `${API_URL}/wallet/deposit/transbank/confirm?${queryParams}`;
-      const requestBody = hasPaymentId ? { token, paymentId: normalizedPaymentId } : { token };
-      
-      const response = await fetch(url, {
+
+      const requestBody: Record<string, string> = {};
+      if (normalizedToken) {
+        requestBody.token = normalizedToken;
+        requestBody.token_ws = normalizedToken; // por compatibilidad
+      }
+      if (normalizedPaymentId) {
+        requestBody.paymentId = normalizedPaymentId;
+      }
+
+      // Usar el endpoint público que no requiere auth (idempotente en backend)
+      const response = await fetch(`${API_URL}/wallet/public/deposit/transbank/confirm`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${authToken}`,
+          ...(authToken ? { 'Authorization': `Bearer ${authToken}` } : {}),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json().catch(() => ({ message: 'Error al confirmar depósito' }));
         throw new Error(error.message || 'Error al confirmar depósito');
       }
 
