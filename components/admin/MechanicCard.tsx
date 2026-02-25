@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Mechanic } from '../../services/adminService';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
+import { getImageUrl } from '../../utils/imageUtils';
 
 interface MechanicCardProps {
   mechanic: Mechanic;
@@ -31,7 +32,7 @@ export const MechanicCard: React.FC<MechanicCardProps> = ({
       <View style={styles.header}>
         <View style={styles.avatarContainer}>
           {mechanic.profilePhoto ? (
-            <Image source={{ uri: mechanic.profilePhoto }} style={styles.avatar} />
+            <Image source={{ uri: getImageUrl(mechanic.profilePhoto) }} style={styles.avatar} />
           ) : (
             <View style={styles.avatarPlaceholder}>
               <Text style={styles.avatarText}>

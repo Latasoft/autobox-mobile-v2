@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../../components/ui/Screen';
 import { useChatList } from '../../hooks/useChat';
+import { getImageUrl } from '../../utils/imageUtils';
 
 export default function ChatListScreen() {
   const router = useRouter();
@@ -30,7 +31,7 @@ export default function ChatListScreen() {
     >
       <View style={styles.avatarContainer}>
         {avatarUrl ? (
-          <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+          <Image source={{ uri: getImageUrl(avatarUrl) }} style={styles.avatar} />
         ) : (
           <View style={styles.placeholderAvatar}>
             <Text style={styles.avatarText}>{fullName.charAt(0)}</Text>

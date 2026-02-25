@@ -3,6 +3,7 @@ import { View, Image, TouchableOpacity, StyleSheet, Text, ActivityIndicator, Ale
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import uploadService from '../../services/uploadService';
+import { getImageUrl } from '../../utils/imageUtils';
 
 interface ProfileImageUploaderProps {
   imageUri?: string;
@@ -20,7 +21,7 @@ export const ProfileImageUploader: React.FC<ProfileImageUploaderProps> = ({
   const pickImage = async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
@@ -57,7 +58,7 @@ export const ProfileImageUploader: React.FC<ProfileImageUploaderProps> = ({
       {loading ? (
         <ActivityIndicator size="large" color="#007bff" />
       ) : imageUri ? (
-        <Image source={{ uri: imageUri }} style={styles.image} />
+        <Image source={{ uri: getImageUrl(imageUri) }} style={styles.image} />
       ) : (
         <View style={styles.placeholder}>
           <Ionicons name="camera-outline" size={40} color="#999" />

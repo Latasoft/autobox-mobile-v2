@@ -7,6 +7,7 @@ import adminService from '../../services/adminService';
 import paymentService from '../../services/paymentService';
 import { User, Payment } from '../../types';
 import { InspectionCard } from '../../components/admin/InspectionCard';
+import { getImageUrl } from '../../utils/imageUtils';
 
 type Tab = 'profile' | 'inspections' | 'payments';
 
@@ -284,7 +285,7 @@ export default function UserDetailScreen() {
 
       <View style={styles.userHeader}>
            {user.foto_url ? (
-             <Image source={{ uri: user.foto_url }} style={styles.avatar} />
+             <Image source={{ uri: getImageUrl(user.foto_url) }} style={styles.avatar} />
            ) : (
              <View style={[styles.avatar, styles.avatarPlaceholder]}>
                <Text style={styles.avatarInitialLarge}>{user.primerNombre?.[0] || user.email?.[0] || '?'}</Text>

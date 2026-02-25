@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import uploadService, { UploadedFile } from '../../services/uploadService';
+import { getImageUrl } from '../../utils/imageUtils';
 
 interface ImageUploaderProps {
   onUploadComplete?: (files: UploadedFile[]) => void;
@@ -134,7 +135,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
       <ScrollView horizontal style={styles.imagesScroll}>
         {currentImages.map((uri, index) => (
           <View key={index} style={styles.imageContainer}>
-            <Image source={{ uri }} style={styles.image} />
+            <Image source={{ uri: getImageUrl(uri) }} style={styles.image} />
             <TouchableOpacity
               style={styles.removeButton}
               onPress={() => handleRemove(index)}

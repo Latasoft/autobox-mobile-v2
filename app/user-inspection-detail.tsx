@@ -14,6 +14,7 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import apiService from '../services/apiService';
 import authService from '../services/authService';
+import { getImageUrl } from '../utils/imageUtils';
 import { Inspection, UserRole } from '../types';
 
 interface InspectionWithStatus extends Omit<Inspection, 'estado_insp'> {
@@ -184,7 +185,7 @@ export default function UserInspectionDetailScreen() {
             <Text style={styles.commentText}>Nota: {answer.respuestaTextoManual}</Text>
           )}
           {answer.imagen_url && (
-            <Image source={{ uri: answer.imagen_url }} style={styles.answerImage} />
+            <Image source={{ uri: getImageUrl(answer.imagen_url) }} style={styles.answerImage} />
           )}
         </View>
       );
@@ -194,7 +195,7 @@ export default function UserInspectionDetailScreen() {
     if (answer.imagen_url) {
       return (
         <View>
-          <Image source={{ uri: answer.imagen_url }} style={styles.answerImage} />
+          <Image source={{ uri: getImageUrl(answer.imagen_url) }} style={styles.answerImage} />
           {answer.respuestaTextoManual && (
             <Text style={styles.commentText}>{answer.respuestaTextoManual}</Text>
           )}

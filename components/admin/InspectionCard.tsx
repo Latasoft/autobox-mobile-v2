@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { AdminInspection } from '../../services/adminService';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
+import { getImageUrl } from '../../utils/imageUtils';
 
 interface InspectionCardProps {
   inspection: AdminInspection;
@@ -99,7 +100,7 @@ export const InspectionCard: React.FC<InspectionCardProps> = ({
           {inspection.mechanicName ? (
             <View style={styles.mechanicInfo}>
               {inspection.mechanicPhoto ? (
-                <Image source={{ uri: inspection.mechanicPhoto }} style={styles.mechanicPhoto} />
+                <Image source={{ uri: getImageUrl(inspection.mechanicPhoto) }} style={styles.mechanicPhoto} />
               ) : (
                 <View style={styles.mechanicPhotoPlaceholder}>
                   <Ionicons name="person" size={20} color="#999" />

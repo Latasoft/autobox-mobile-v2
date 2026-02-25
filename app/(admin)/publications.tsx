@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { Screen } from '../../components/ui/Screen';
 import adminService from '../../services/adminService';
+import { getImageUrl } from '../../utils/imageUtils';
 
 interface Publication {
   id: string;
@@ -216,7 +217,7 @@ export default function AdminPublications() {
         <View style={styles.publicationHeader}>
           <View style={styles.vehicleInfo}>
             {item.images && item.images.length > 0 ? (
-              <Image source={{ uri: item.images[0] }} style={styles.vehicleImage} />
+              <Image source={{ uri: getImageUrl(item.images[0]) }} style={styles.vehicleImage} />
             ) : (
               <View style={[styles.vehicleImage, styles.noImage]}>
                 <Ionicons name="car" size={32} color="#999" />

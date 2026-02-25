@@ -4,6 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../../components/ui/Screen';
 import { useChatMessages } from '../../hooks/useChat';
+import { getImageUrl } from '../../utils/imageUtils';
 
 export default function ChatDetailScreen() {
   const router = useRouter();
@@ -88,7 +89,7 @@ export default function ChatDetailScreen() {
         
         <View style={styles.headerContent}>
           {userAvatar ? (
-            <Image source={{ uri: userAvatar as string }} style={styles.headerAvatar} />
+            <Image source={{ uri: getImageUrl(userAvatar as string) }} style={styles.headerAvatar} />
           ) : (
             <View style={styles.headerPlaceholderAvatar}>
               <Text style={styles.headerAvatarText}>{(userName as string || 'C').charAt(0)}</Text>

@@ -27,13 +27,13 @@ class UploadService {
 
     const result = useCamera
       ? await ImagePicker.launchCameraAsync({
-          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          mediaTypes: ['images'],
           allowsEditing: true,
           aspect: [4, 3],
           quality: 0.8,
         })
       : await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          mediaTypes: ['images'],
           allowsEditing: true,
           aspect: [4, 3],
           quality: 0.8,
@@ -59,7 +59,7 @@ class UploadService {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsMultipleSelection: true,
       quality: 0.8,
       selectionLimit: maxImages,
@@ -83,7 +83,7 @@ class UploadService {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+      mediaTypes: ['videos'],
       allowsMultipleSelection: true,
       quality: 0.7,
       videoMaxDuration: 60,
@@ -160,11 +160,26 @@ class UploadService {
         throw new Error(`Error al subir a Cloudinary (Status: ${uploadResponse.status})`);
       }
 
-      console.log('✅ [UploadService] Upload successful:', publicUrl);
+      // Parsear la respuesta real de Cloudinary para obtener la URL definitiva
+      let finalPublicUrl = publicUrl; // fallback al pre-computado
+      try {
+        const cloudinaryData = JSON.parse(uploadResponse.body);
+        if (cloudinaryData.secure_url) {
+          finalPublicUrl = cloudinaryData.secure_url;
+        } else if (cloudinaryData.url) {
+          // Forzar HTTPS si solo viene http
+          finalPublicUrl = cloudinaryData.url.replace('http://', 'https://');
+        }
+        console.log('✅ [UploadService] Cloudinary secure_url:', finalPublicUrl);
+      } catch (parseError) {
+        console.warn('⚠️ [UploadService] No se pudo parsear respuesta de Cloudinary, usando publicUrl pre-computada:', publicUrl);
+      }
+
+      console.log('✅ [UploadService] Upload successful:', finalPublicUrl);
 
       return {
         key,         
-        publicUrl,   
+        publicUrl: finalPublicUrl,   
         fileName,
         fileType,
       };

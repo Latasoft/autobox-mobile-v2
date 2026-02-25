@@ -23,6 +23,7 @@ import { Screen } from '../../components/ui/Screen';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { InspectionCard } from '../../components/admin/InspectionCard';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { getImageUrl } from '../../utils/imageUtils';
 
 const { width } = Dimensions.get('window');
 
@@ -498,7 +499,7 @@ export default function AdminInspectionsScreen() {
                 {detailInspection.publicacion?.fotos && detailInspection.publicacion.fotos.length > 0 ? (
                   <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} style={styles.photosContainer}>
                     {detailInspection.publicacion.fotos.map((foto: any, index: number) => (
-                      <Image key={index} source={{ uri: foto.url }} style={styles.vehiclePhoto} resizeMode="cover" />
+                      <Image key={index} source={{ uri: getImageUrl(foto.url) }} style={styles.vehiclePhoto} resizeMode="cover" />
                     ))}
                   </ScrollView>
                 ) : (
@@ -543,7 +544,7 @@ export default function AdminInspectionsScreen() {
                   <Text style={styles.sectionTitle}>Vendedor (Solicitante)</Text>
                   <View style={styles.sellerInfo}>
                     {detailInspection.publicacion?.vendedor?.foto_url ? (
-                      <Image source={{ uri: detailInspection.publicacion.vendedor.foto_url }} style={styles.sellerPhoto} />
+                      <Image source={{ uri: getImageUrl(detailInspection.publicacion.vendedor.foto_url) }} style={styles.sellerPhoto} />
                     ) : (
                       <View style={styles.sellerPhotoPlaceholder}>
                         <Ionicons name="person" size={24} color="#FFF" />

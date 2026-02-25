@@ -25,6 +25,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Inspection } from '../../types';
 import { INSPECTION_SECTIONS } from '../../constants/InspectionForm';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
+import { getImageUrl } from '../../utils/imageUtils';
 
 export default function InspectionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -313,7 +314,7 @@ export default function InspectionDetailScreen() {
                             {mediaUrls[question.id] ? (
                               <View style={styles.previewContainer}>
                                 <Image 
-                                  source={{ uri: mediaUrls[question.id] }} 
+                                  source={{ uri: getImageUrl(mediaUrls[question.id]) }} 
                                   style={styles.miniPreview} 
                                 />
                                 <TouchableOpacity 

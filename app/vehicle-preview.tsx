@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../components/ui/Screen';
 import apiService from '../services/apiService';
 import ttsService from '../services/ttsService';
+import { getImageUrl } from '../utils/imageUtils';
 
 const { width, height } = Dimensions.get('window');
 
@@ -108,7 +109,7 @@ export default function VehiclePreviewScreen() {
           keyExtractor={(uri, idx) => `${uri}-${idx}`}
           renderItem={({ item }) => (
             <TouchableOpacity activeOpacity={0.9} onPress={goToDetails}>
-              <Image source={{ uri: item }} style={styles.image} resizeMode="cover" />
+              <Image source={{ uri: getImageUrl(item) }} style={styles.image} resizeMode="cover" />
             </TouchableOpacity>
           )}
           horizontal

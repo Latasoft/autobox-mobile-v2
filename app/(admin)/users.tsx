@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../../components/ui/Screen';
 import adminService from '../../services/adminService';
 import { User } from '../../types';
+import { getImageUrl } from '../../utils/imageUtils';
 
 type RolFilter   = 'todos' | 'Administrador' | 'Mecánico' | 'Usuario';
 type EstadoFilter = 'todos' | 'activo' | 'inactivo';
@@ -155,7 +156,7 @@ export default function UsersScreen() {
       <View style={styles.row}>
         <View style={styles.avatarContainer}>
           {item.foto_url ? (
-            <Image source={{ uri: item.foto_url }} style={styles.avatar} />
+            <Image source={{ uri: getImageUrl(item.foto_url) }} style={styles.avatar} />
           ) : (
             <View style={styles.avatarPlaceholder}>
               <Text style={styles.avatarInitial}>{item.primerNombre?.[0] || item.email?.[0] || '?'}</Text>

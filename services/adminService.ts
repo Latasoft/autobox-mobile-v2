@@ -493,39 +493,16 @@ class AdminService {
       const filename = fileUri.split('/').pop() || 'profile.jpg';
       const folder = `mechanics/${mechanicId}/profile`;
 
-      // 1. Obtener URL pre-firmada
-      const presignedResponse = await fetch(`${API_URL}/uploads/presigned-upload`, {
-        method: 'POST',
-        headers: await this.getHeaders(),
-        body: JSON.stringify({
-          fileName: filename,
-          fileType: 'image/jpeg', // Asumimos jpeg por simplicidad
-          folder: folder,
-        }),
-      });
+      // Delegar al uploadService que ya maneja Cloudinary correctamente
+      const uploadService = (await import('./uploadService')).default;
+      const result = await uploadService.uploadFile(
+        fileUri,
+        filename,
+        'image/jpeg',
+        folder
+      );
 
-      if (!presignedResponse.ok) {
-        throw new Error('Error al generar URL de subida');
-      }
-
-      const { uploadUrl, publicUrl } = await presignedResponse.json();
-
-      // 2. Subir archivo a S3
-      const fileBlob = await fetch(fileUri).then(r => r.blob());
-
-      const uploadResponse = await fetch(uploadUrl, {
-        method: 'PUT',
-        body: fileBlob,
-        headers: {
-          'Content-Type': 'image/jpeg',
-        },
-      });
-
-      if (!uploadResponse.ok) {
-        throw new Error('Error al subir la imagen a S3');
-      }
-
-      return publicUrl;
+      return result.publicUrl;
     } catch (error) {
       console.error('Error uploadMechanicProfilePhoto:', error);
       throw error;
