@@ -43,6 +43,7 @@ export default function PaymentGatewayScreen() {
   const [pollingAttempts, setPollingAttempts] = useState(0);
   const isCancelledRef = useRef(false);
   const lastHandledReturnUrlRef = useRef<string | null>(null);
+  const callbackFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Debug: Log cambios en webviewVisible y webviewUrl
   useEffect(() => {
@@ -259,12 +260,19 @@ export default function PaymentGatewayScreen() {
     }
   };
 
+  // Detecta URLs que son el RETORNO FINAL de WebPay (deep links, cancelaciones)
+  // NO incluye la callback URL del backend (esa debe cargarse para que el backend procese)
   const isWebPayReturnUrl = (url: string): boolean => {
     return (
       url.startsWith('autobox://') ||
-      url.includes(WEBPAY_CALLBACK_PATH) ||
       url.includes('TBK_TOKEN=')
     );
+  };
+
+  // Detecta la callback URL del backend (donde Transbank hace POST con token_ws)
+  // Esta URL DEBE ser cargada por el WebView para que el backend reciba el callback
+  const isWebPayCallbackUrl = (url: string): boolean => {
+    return url.includes(WEBPAY_CALLBACK_PATH) && !url.startsWith('autobox://');
   };
 
   const waitForPaymentCompletion = async (paymentId: string, attempts = 8, delayMs = 1200): Promise<boolean> => {
@@ -631,9 +639,34 @@ export default function PaymentGatewayScreen() {
           }
         }
       } else if (!errorCategory.retryable) {
-        // ERROR FATAL O NO RECUPERABLE (Ej: 400 Bad Request, transacción inválida)
-        // Detener polling inmediatamente
-        logPaymentEvent('Non-retryable error, cancelling payment check', { errorCategory }, 'warn');
+        // ERROR NO RECUPERABLE: Antes de cancelar, verificar si el backend ya completó el pago
+        // (El callback del backend pudo haber confirmado la transacción independientemente)
+        logPaymentEvent('Non-retryable error, checking payment status before cancelling', { errorCategory }, 'warn');
+        const savedPidForCheck = await AsyncStorage.getItem('waitingForPayment');
+        if (savedPidForCheck) {
+          try {
+            const paymentCheck = await apiService.get(`/payments/${savedPidForCheck}`);
+            if (paymentCheck?.estado === 'Completado') {
+              logPaymentEvent('Payment actually completed despite frontend error', { paymentId: savedPidForCheck });
+              setPaymentStatus('success');
+              setIsWaitingForPayment(false);
+              await AsyncStorage.removeItem('waitingForPayment');
+              setLoading(true);
+              try {
+                await processSuccessfulPayment(savedPidForCheck);
+              } catch (e) {
+                console.error('Error processing after late verification:', e);
+              } finally {
+                setLoading(false);
+              }
+              setIsConfirming(false);
+              return;
+            }
+          } catch (checkErr) {
+            logPaymentEvent('Could not verify payment status before cancelling', { error: checkErr }, 'warn');
+          }
+        }
+        // Solo cancelar si el pago realmente no fue completado
         markPaymentCancelled(undefined, errorCategory.message || 'Error no recuperable');
         setLoading(false);
         setIsConfirming(false);
@@ -847,6 +880,11 @@ export default function PaymentGatewayScreen() {
       await AsyncStorage.setItem(`payment_${paymentId}_amount`, amountNum.toString());
 
       logPaymentEvent('Creating WebPay transaction', { paymentId });
+      // Limpiar fallback timer si existía
+      if (callbackFallbackRef.current) {
+        clearTimeout(callbackFallbackRef.current);
+        callbackFallbackRef.current = null;
+      }
 
       // Crear transacción de WebPay con reintentos
       const webpayData = await executeWithRetry(
@@ -872,21 +910,48 @@ export default function PaymentGatewayScreen() {
 
       setIsWaitingForPayment(true);
 
-      // Abrir la URL dentro de la app usando WebView (in-app browser)
+      // Guardar token de Transbank para reconciliación posterior
+      if (webpayData.token) {
+        await AsyncStorage.setItem(`payment_${paymentId}_token`, webpayData.token);
+      }
+
+      // Abrir la URL dentro de la app usando WebView con formulario POST
+      // (Requerido por Transbank WebPay Plus - la URL debe recibir token_ws via POST)
       const originalUrl = webpayData.url as string;
       
       console.log('🔵 [WebPay] Limpiando estado loading antes de abrir WebView...');
       setLoading(false);  // Limpiar loading ANTES de abrir WebView
       
-      setWebviewUrl(originalUrl);
-      setWebviewHtml(null); // Asegurar que no hay HTML previo
+      const autoSubmitHtml = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Redirigiendo a WebPay...</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          </head>
+          <body onload="document.forms[0].submit()">
+            <div style="display: flex; justify-content: center; align-items: center; height: 100vh; flex-direction: column; font-family: sans-serif;">
+              <p>Redirigiendo a WebPay...</p>
+              <form action="${originalUrl}" method="POST">
+                <input type="hidden" name="token_ws" value="${webpayData.token}" />
+                <noscript>
+                  <input type="submit" value="Ir a pagar" />
+                </noscript>
+              </form>
+            </div>
+          </body>
+        </html>
+      `;
+
+      setWebviewHtml(autoSubmitHtml);
+      setWebviewUrl(originalUrl); // Mantener URL para referencia
       
       // Pequeño delay para que React actualice estados
       await new Promise(resolve => setTimeout(resolve, 100));
       
       setWebviewVisible(true);
       
-      console.log('🔵 [WebPay] WebView configurado. Visible:', true);
+      console.log('🔵 [WebPay] WebView configurado con POST form. Visible:', true);
       
       return; // Importante: salir aquí para no ejecutar el catch
     } catch (error: any) {
@@ -939,6 +1004,11 @@ export default function PaymentGatewayScreen() {
     } finally {
         // UI Cleanup - FORCE reset ALWAYS
         console.log('🛑 [PaymentGateway] Forcing cancellation state');
+        // Limpiar fallback timer si existe
+        if (callbackFallbackRef.current) {
+          clearTimeout(callbackFallbackRef.current);
+          callbackFallbackRef.current = null;
+        }
         setIsWaitingForPayment(false);
         setReconciliationNeeded(false);
         setPollingAttempts(0);
@@ -1401,27 +1471,58 @@ export default function PaymentGatewayScreen() {
                         Alert.alert('Error de Conexión', 'No pudimos cargar el banco via WebPay.');
                     }}
                     
-                    // 3. INTERCEPTOR MÍNIMO (Solo busca el éxito)
+                    // 3. INTERCEPTOR: Deep links y cancelaciones se capturan, callback se deja pasar
                     onShouldStartLoadWithRequest={(request) => {
                         const url = request.url;
                         console.log('⚡ Navegando a:', url);
 
+                      // Deep links (autobox://) y TBK_TOKEN (cancelación): interceptar
                       if (isWebPayReturnUrl(url)) {
+                        // Limpiar fallback timer si existe (el redirect llegó correctamente)
+                        if (callbackFallbackRef.current) {
+                          clearTimeout(callbackFallbackRef.current);
+                          callbackFallbackRef.current = null;
+                        }
                         handleWebPayReturnFromWebView(url);
                         return false;
-                        }
-                        
-                        // DEJAR PASAR TODO LO DEMÁS (Transbank, Redirecciones, etc.)
+                      }
+
+                      // Callback del backend: DEJAR PASAR para que el backend procese
+                      // el commit de Transbank y redirija al deep link
+                      if (isWebPayCallbackUrl(url)) {
+                        console.log('🔵 [WebView] Callback URL detectada, permitiendo carga para que backend procese');
                         return true;
+                      }
+                        
+                      // DEJAR PASAR TODO LO DEMÁS (Transbank, Redirecciones, etc.)
+                      return true;
                     }}
                     
-                    // 4. RESPALDO (Por si el request no lo pilla)
+                    // 4. RESPALDO: Detectar retorno y callback del backend
                     onNavigationStateChange={(navState) => {
-                        // Solo actualizamos el debug visual
-                        // setWebviewUrl(navState.url); 
-                        
-                      if (isWebPayReturnUrl(navState.url)) {
-                        handleWebPayReturnFromWebView(navState.url);
+                        // Deep links y cancelaciones
+                        if (isWebPayReturnUrl(navState.url)) {
+                          if (callbackFallbackRef.current) {
+                            clearTimeout(callbackFallbackRef.current);
+                            callbackFallbackRef.current = null;
+                          }
+                          handleWebPayReturnFromWebView(navState.url);
+                          return;
+                        }
+
+                        // Callback del backend cargada: el backend está procesando.
+                        // Si el backend no redirige a un deep link, hacer fallback a polling.
+                        if (isWebPayCallbackUrl(navState.url) && !navState.loading && !callbackFallbackRef.current) {
+                          console.log('🔵 [WebView] Callback del backend cargada, esperando redirect...');
+                          callbackFallbackRef.current = setTimeout(() => {
+                            callbackFallbackRef.current = null;
+                            // Si aún no se procesó el retorno, cerrar WebView y verificar estado
+                            if (!lastHandledReturnUrlRef.current && !isCancelledRef.current) {
+                              console.log('⚠️ [WebView] Backend no redirigió a deep link, cerrando y verificando pago...');
+                              setWebviewVisible(false);
+                              void checkPendingPayment();
+                            }
+                          }, 4000);
                         }
                     }}
                 />
