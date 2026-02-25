@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import authService from './authService';
-import { API_URL, PAYMENT_API_URL } from '../constants/Config';
+import { API_URL } from '../constants/Config';
 
 class WalletService {
   // Obtener billetera del usuario

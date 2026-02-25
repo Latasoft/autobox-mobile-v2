@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Alert, Linking, AppState, Platform, TouchableOpacity, Modal, SafeAreaView, useWindowDimensions, StatusBar, BackHandler } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, Alert, AppState, Platform, TouchableOpacity, Modal, SafeAreaView, useWindowDimensions, StatusBar, BackHandler } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Screen } from '../../../components/ui/Screen';
@@ -54,6 +54,24 @@ export default function PaymentGatewayScreen() {
     console.log('🔵 [State] webviewUrl cambió a:', webviewUrl);
   }, [webviewUrl]);
 
+  // Bloquear botón de retroceso en Android cuando el WebView de pago está visible
+  useEffect(() => {
+    if (!webviewVisible) return;
+    const backAction = () => {
+      Alert.alert(
+        'Pago en proceso',
+        '¿Estás seguro de que deseas cancelar el pago?',
+        [
+          { text: 'Continuar pagando', style: 'cancel' },
+          { text: 'Sí, Salir', style: 'destructive', onPress: () => { setWebviewVisible(false); markPaymentCancelled(); } },
+        ]
+      );
+      return true; // Prevenir comportamiento por defecto
+    };
+    const subscription = BackHandler.addEventListener('hardwareBackPress', backAction);
+    return () => subscription.remove();
+  }, [webviewVisible]);
+
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
 
@@ -91,6 +109,7 @@ export default function PaymentGatewayScreen() {
   // Polling automático para verificar pagos pendientes
   useEffect(() => {
     let pollingInterval: any = null;
+    let localAttempts = 0;
     
     if (reconciliationNeeded && paymentStatus === 'verifying' && !isConfirming) {
       console.log('🔄 [Polling] Iniciando polling automático de verificación de pago');
@@ -100,9 +119,10 @@ export default function PaymentGatewayScreen() {
       
       // Luego verificar cada 3 segundos
       pollingInterval = setInterval(async () => {
-        if (pollingAttempts < 20) { // Máximo 20 intentos (1 minuto)
-          console.log(`🔄 [Polling] Intento ${pollingAttempts + 1}/20`);
-          setPollingAttempts(prev => prev + 1);
+        localAttempts++;
+        if (localAttempts < 20) { // Máximo 20 intentos (1 minuto)
+          console.log(`🔄 [Polling] Intento ${localAttempts}/20`);
+          setPollingAttempts(localAttempts);
           await checkPendingPayment();
         } else {
           console.log('⏹️ [Polling] Máximo de intentos alcanzado');
@@ -123,7 +143,7 @@ export default function PaymentGatewayScreen() {
         clearInterval(pollingInterval);
       }
     };
-  }, [reconciliationNeeded, paymentStatus, isConfirming, pollingAttempts]);
+  }, [reconciliationNeeded, paymentStatus, isConfirming]);
 
   const loadPrices = async () => {
     try {
@@ -459,6 +479,7 @@ export default function PaymentGatewayScreen() {
                  setPollingAttempts(prev => prev + 1);
                  setReconciliationNeeded(true); // Activar polling
                  setIsConfirming(false);
+                 setLoading(false);
                  return;
             }
             // Si después de 3 intentos no hay confirmación, asumir error
@@ -466,6 +487,7 @@ export default function PaymentGatewayScreen() {
             setReconciliationNeeded(false);
             setPaymentStatus('failure');
             setIsConfirming(false);
+            setLoading(false);
             return;
         } else {
              setIsConfirming(false);
@@ -484,6 +506,10 @@ export default function PaymentGatewayScreen() {
 
         if (response?.hasPending && response?.token) {
           tokenToConfirm = response.token;
+          // Guardar token recuperado para reconciliación futura
+          if (savedPaymentId) {
+            await AsyncStorage.setItem(`payment_${savedPaymentId}_token`, response.token);
+          }
         }
       }
       
@@ -705,12 +731,9 @@ export default function PaymentGatewayScreen() {
     if (amountNum > 10000000) { // 10M max
       logPaymentEvent('Amount exceeds limit', { amount }, 'error');
       Alert.alert('Error', 'El monto excede el límite permitido.');
+      setLoading(false);
       return;
     }
-
-    setLoading(true);
-    setErrorDetails(null);
-    isCancelledRef.current = false;
 
     try {
       const serviceTypeStr = Array.isArray(serviceType) ? serviceType[0] : serviceType;
@@ -761,6 +784,7 @@ export default function PaymentGatewayScreen() {
             await AsyncStorage.setItem('waitingForPayment', String(paymentId));
             await AsyncStorage.setItem(`payment_${paymentId}_timestamp`, Date.now().toString());
             await AsyncStorage.setItem(`payment_${paymentId}_amount`, amountNum.toString());
+            await AsyncStorage.setItem(`payment_${paymentId}_serviceType`, 'wallet_deposit');
             if (token) {
                 await AsyncStorage.setItem(`payment_${paymentId}_token`, token);
             }
@@ -878,6 +902,7 @@ export default function PaymentGatewayScreen() {
       await AsyncStorage.setItem('waitingForPayment', paymentId);
       await AsyncStorage.setItem(`payment_${paymentId}_timestamp`, Date.now().toString());
       await AsyncStorage.setItem(`payment_${paymentId}_amount`, amountNum.toString());
+      await AsyncStorage.setItem(`payment_${paymentId}_serviceType`, 'webpay');
 
       logPaymentEvent('Creating WebPay transaction', { paymentId });
       // Limpiar fallback timer si existía

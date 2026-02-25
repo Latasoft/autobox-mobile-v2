@@ -124,7 +124,7 @@ export default function PaymentsScreen() {
             </View>
 
             <View style={styles.actionsRow}>
-                {item.estado === PaymentStatus.PENDING && (
+                {(typeof item.estado === 'string' ? item.estado.toUpperCase() : '') === PaymentStatus.PENDING.toUpperCase() && (
                   <TouchableOpacity 
                     style={[styles.actionButton, { backgroundColor: '#4CAF50' }]}
                     onPress={() => updatePaymentStatus(item.id, PaymentStatus.COMPLETED)}

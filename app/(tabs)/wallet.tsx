@@ -19,7 +19,7 @@ interface PaymentError {
 }
 
 export default function WalletScreen() {
-  const { balance, transactions, loading, refresh, addFunds } = useWallet();
+  const { balance, transactions, loading, refresh } = useWallet();
   const [modalVisible, setModalVisible] = useState(false);
   const [amount, setAmount] = useState('');
 
@@ -300,8 +300,6 @@ export default function WalletScreen() {
     </Screen>
   );
 }
-
-if (typeof undefined !== 'undefined') {}
 
 // Render success view for deposit
 // (Placed after component to avoid reordering states in the component)

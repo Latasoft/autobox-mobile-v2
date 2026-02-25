@@ -40,7 +40,7 @@ export function usePayments() {
       if (selectedFilter !== 'all') {
         displayData = displayData.filter(p => {
             const status = typeof p.estado === 'string' ? p.estado.toUpperCase() : '';
-            if (selectedFilter === 'confirmado') return status.includes('COMPLET');
+            if (selectedFilter === 'confirmado') return status.includes('COMPLET') || status === 'AUTHORIZED' || status === 'PAGADO';
             if (selectedFilter === 'pendiente') return status.includes('PEND');
             if (selectedFilter === 'fallido') return status.includes('FALL') || status.includes('FAIL');
             return true;

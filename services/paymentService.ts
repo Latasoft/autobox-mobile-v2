@@ -1,4 +1,3 @@
-import { Alert } from 'react-native';
 import apiService from './apiService';
 
 // ==========================================
@@ -84,16 +83,11 @@ export interface FinancialSummary {
   totalMechanicWithdrawals: number;
 }
 
-export interface WebpayInitResponse {
-  url: string;
-  token: string;
-}
+
 
 // ==========================================
 // 2. CONFIGURACIÓN Y SERVICIO
 // ==========================================
-
-const HARDCODED_PAYMENT_URL = 'https://payment-uby0.onrender.com';
 
 /**
  * Mapea el campo 'mecanico' (snake_case del backend) al alias 'mechanic'
@@ -113,75 +107,7 @@ function normalizeMechanicPayment(item: MechanicPayment): MechanicPayment {
 const paymentService = {
 
   // ---------------------------------------------------------
-  // 1. INICIAR PAGO WEBPAY
-  // ---------------------------------------------------------
-
-  async initiateWebPayTransaction(amount: number, buyOrder: string, sessionId: string): Promise<WebpayInitResponse> {
-    console.log("🚀 1. INICIANDO PAGO...");
-    const targetUrl = `${HARDCODED_PAYMENT_URL}/create`;
-
-    try {
-      const payload = {
-        amount,
-        monto: amount,
-        buyOrder,
-        ordenCompra: buyOrder,
-        sessionId,
-        idSesion: sessionId,
-        returnUrl: `${HARDCODED_PAYMENT_URL}/commit`
-      };
-
-      console.log("📦 Enviando datos:", JSON.stringify(payload));
-
-      const response = await fetch(targetUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify(payload),
-      });
-
-      console.log("📡 2. Status del Servidor:", response.status);
-
-      if (!response.ok) {
-        const text = await response.text();
-        Alert.alert("Error del Servidor", `Status: ${response.status}\nMensaje: ${text}`);
-        throw new Error(`Server Error: ${response.status}`);
-      }
-
-      const responseText = await response.text();
-      console.log("📩 3. Respuesta RAW:", responseText);
-
-      let data;
-      try {
-        data = JSON.parse(responseText);
-      } catch (e) {
-        Alert.alert("Error Formato", "El servidor no devolvió JSON:\n" + responseText.substring(0, 100));
-        throw new Error("Invalid JSON response");
-      }
-
-      const webpayUrl = data.url || data.response?.url || data.data?.url;
-      const webpayToken = data.token || data.response?.token || data.data?.token;
-
-      if (webpayUrl && webpayToken) {
-        return { url: webpayUrl, token: webpayToken };
-      } else {
-        Alert.alert("Faltan Datos", `Recibimos esto:\n${JSON.stringify(data)}`);
-        throw new Error("No URL in response");
-      }
-
-    } catch (error: any) {
-      console.error("❌ ERROR FINAL:", error);
-      if (!error.message.includes("Error del Servidor") && !error.message.includes("Faltan Datos")) {
-        Alert.alert("Error al cargar WebPay", error.message);
-      }
-      throw error;
-    }
-  },
-
-  // ---------------------------------------------------------
-  // 2. GESTIÓN DE PAGOS (HISTORIAL)
+  // 1. GESTIÓN DE PAGOS (HISTORIAL)
   // ---------------------------------------------------------
 
   async getAllPayments(): Promise<Payment[]> {

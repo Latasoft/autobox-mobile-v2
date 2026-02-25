@@ -41,53 +41,78 @@ export default function PaymentCallbackScreen() {
         status: callbackStatus,
       });
 
+      const savedPaymentId = await AsyncStorage.getItem('waitingForPayment');
+      // Determinar si es un depósito de wallet leyendo el tipo guardado
+      const savedServiceType = savedPaymentId
+        ? await AsyncStorage.getItem(`payment_${savedPaymentId}_serviceType`)
+        : null;
+      const isWalletDeposit = savedServiceType === 'wallet_deposit';
+
+      // Helper para limpiar todas las claves de AsyncStorage del pago
+      const cleanupPaymentStorage = async (paymentId?: string | null) => {
+        await AsyncStorage.removeItem('waitingForPayment');
+        if (paymentId) {
+          await AsyncStorage.removeItem(`payment_${paymentId}_token`);
+          await AsyncStorage.removeItem(`payment_${paymentId}_timestamp`);
+          await AsyncStorage.removeItem(`payment_${paymentId}_amount`);
+          await AsyncStorage.removeItem(`payment_${paymentId}_serviceType`);
+        }
+      };
+
       // Caso 1: Cancelación explícita (TBK_TOKEN o status de rechazo)
       if (tbkToken || callbackStatus === 'rejected' || callbackStatus === 'error' || callbackStatus === 'aborted') {
         console.log('❌ [PaymentCallback] Pago cancelado/rechazado');
-        // Marcar pago como fallido en backend
-        const savedPaymentId = await AsyncStorage.getItem('waitingForPayment');
         if (savedPaymentId) {
           apiService.fetch(`/payments/${savedPaymentId}/status`, {
             method: 'PATCH',
             body: JSON.stringify({ estado: 'Fallido', detalles: 'Anulado por el usuario o el banco (deep link)' }),
           }).catch(() => {});
-          await AsyncStorage.removeItem('waitingForPayment');
         }
+        await cleanupPaymentStorage(savedPaymentId);
         setStatus('failure');
         setMessage('La operación fue anulada.');
         return;
       }
 
       // Caso 2: Pago exitoso o en verificación
-      const savedPaymentId = await AsyncStorage.getItem('waitingForPayment');
-
-      // Intentar confirmar con token_ws si lo tenemos
       const tokenToUse = tokenWs || (savedPaymentId ? await AsyncStorage.getItem(`payment_${savedPaymentId}_token`) : null);
 
       if (tokenToUse) {
         try {
-          // Primero intentar confirmar la transacción WebPay
-          const result = await apiService.confirmWebPayTransaction(tokenToUse);
-          const responseCode = result?.response_code ?? result?.transaction?.response_code;
-          const resultStatus = result?.status ?? result?.transaction?.status;
-          const isAuthorized = responseCode === 0 || resultStatus === 'AUTHORIZED';
+          let isAuthorized = false;
+
+          if (isWalletDeposit) {
+            // Wallet deposit: usar endpoint de confirmación de wallet
+            console.log('🔵 [PaymentCallback] Confirmando depósito de wallet...');
+            const result = await walletService.confirmTransbankDeposit(tokenToUse, savedPaymentId || undefined);
+            const resultStatus = result?.status || result?.data?.status;
+            const responseCode = result?.response_code ?? result?.data?.response_code;
+            isAuthorized = result?.success === true || resultStatus === 'AUTHORIZED' || responseCode === 0;
+          } else {
+            // Pago normal: usar endpoint de confirmación WebPay
+            console.log('🔵 [PaymentCallback] Confirmando pago WebPay...');
+            const result = await apiService.confirmWebPayTransaction(tokenToUse);
+            const responseCode = result?.response_code ?? result?.transaction?.response_code;
+            const resultStatus = result?.status ?? result?.transaction?.status;
+            isAuthorized = responseCode === 0 || resultStatus === 'AUTHORIZED';
+          }
 
           if (isAuthorized) {
             console.log('✅ [PaymentCallback] Pago confirmado exitosamente');
             setStatus('success');
-            setMessage('¡Tu pago fue procesado correctamente!');
-            await AsyncStorage.removeItem('waitingForPayment');
+            setMessage(isWalletDeposit ? '¡Tu saldo ha sido actualizado!' : '¡Tu pago fue procesado correctamente!');
+            await cleanupPaymentStorage(savedPaymentId);
             return;
           }
         } catch (e: any) {
           // Si ya fue procesado (422), verificar estado final
-          if (e.message?.includes('422') || e.message?.includes('already locked')) {
+          if (e.message?.includes('422') || e.message?.includes('already locked') || e.message?.includes('processed')) {
             if (savedPaymentId) {
               const paymentCheck = await apiService.get(`/payments/${savedPaymentId}`);
               if (paymentCheck?.estado === 'Completado') {
                 setStatus('success');
-                setMessage('¡Tu pago fue procesado correctamente!');
-                await AsyncStorage.removeItem('waitingForPayment');
+                setMessage(isWalletDeposit ? '¡Tu saldo ha sido actualizado!' : '¡Tu pago fue procesado correctamente!');
+                await cleanupPaymentStorage(savedPaymentId);
                 return;
               }
             }
@@ -101,8 +126,8 @@ export default function PaymentCallbackScreen() {
         const paymentCheck = await apiService.get(`/payments/${savedPaymentId}`);
         if (paymentCheck?.estado === 'Completado') {
           setStatus('success');
-          setMessage('¡Tu pago fue procesado correctamente!');
-          await AsyncStorage.removeItem('waitingForPayment');
+          setMessage(isWalletDeposit ? '¡Tu saldo ha sido actualizado!' : '¡Tu pago fue procesado correctamente!');
+          await cleanupPaymentStorage(savedPaymentId);
           return;
         }
       }
