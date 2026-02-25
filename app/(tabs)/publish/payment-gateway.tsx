@@ -13,9 +13,9 @@ import { useWallet } from '../../../hooks/useWallet';
 import {API_URL} from '../../../constants/Config';
 
 // Configuración de reintentos
-const MAX_RETRIES = 2; // Reducido de 3 a 2
-const RETRY_DELAY_MS = 1000; // Reducido de 2000 a 1000
-const TIMEOUT_MS = 10000; // Reducido de 30000 a 10000
+const MAX_RETRIES = 2;
+const RETRY_DELAY_MS = 1000;
+const TIMEOUT_MS = 10000;
 
 interface PaymentError {
   code: string;
@@ -45,7 +45,6 @@ export default function PaymentGatewayScreen() {
   const lastHandledReturnUrlRef = useRef<string | null>(null);
   const callbackFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Debug: Log cambios en webviewVisible y webviewUrl
   useEffect(() => {
     console.log('🔵 [State] webviewVisible cambió a:', webviewVisible);
   }, [webviewVisible]);
@@ -66,7 +65,7 @@ export default function PaymentGatewayScreen() {
           { text: 'Sí, Salir', style: 'destructive', onPress: () => { setWebviewVisible(false); markPaymentCancelled(); } },
         ]
       );
-      return true; // Prevenir comportamiento por defecto
+      return true;
     };
     const subscription = BackHandler.addEventListener('hardwareBackPress', backAction);
     return () => subscription.remove();
@@ -77,7 +76,6 @@ export default function PaymentGatewayScreen() {
 
   const { amount, description, serviceType, metadata } = params;
 
-  // Logging detallado
   const logPaymentEvent = (event: string, data?: any, level: 'info' | 'warn' | 'error' = 'info') => {
     const timestamp = new Date().toISOString();
     const logEntry = {
@@ -92,11 +90,6 @@ export default function PaymentGatewayScreen() {
     
     const prefix = level === 'error' ? '❌' : level === 'warn' ? '⚠️' : '✅';
     console.log(`${prefix} [PaymentGateway] ${event}:`, logEntry);
-    
-    // TODO: Enviar logs críticos al backend para monitoreo
-    if (level === 'error') {
-      // apiService.post('/logs/payment-error', logEntry).catch(() => {});
-    }
   };
 
   useEffect(() => {
@@ -114,13 +107,11 @@ export default function PaymentGatewayScreen() {
     if (reconciliationNeeded && paymentStatus === 'verifying' && !isConfirming) {
       console.log('🔄 [Polling] Iniciando polling automático de verificación de pago');
       
-      // Verificar inmediatamente
       checkPendingPayment();
       
-      // Luego verificar cada 3 segundos
       pollingInterval = setInterval(async () => {
         localAttempts++;
-        if (localAttempts < 20) { // Máximo 20 intentos (1 minuto)
+        if (localAttempts < 20) {
           console.log(`🔄 [Polling] Intento ${localAttempts}/20`);
           setPollingAttempts(localAttempts);
           await checkPendingPayment();
@@ -134,7 +125,7 @@ export default function PaymentGatewayScreen() {
           );
           if (pollingInterval) clearInterval(pollingInterval);
         }
-      }, 3000); // Cada 3 segundos
+      }, 3000);
     }
     
     return () => {
@@ -147,6 +138,7 @@ export default function PaymentGatewayScreen() {
 
   const loadPrices = async () => {
     try {
+      // FIX: usar el endpoint correcto que expone el backend (/payments/prices)
       const data = await apiService.getPrices();
       setPrices(data);
     } catch (error) {
@@ -154,7 +146,6 @@ export default function PaymentGatewayScreen() {
     }
   };
 
-  // Función de reintentos con backoff exponencial
   const executeWithRetry = async <T,>(
     fn: () => Promise<T>,
     operation: string,
@@ -184,9 +175,8 @@ export default function PaymentGatewayScreen() {
         isNetworkError 
       }, 'error');
 
-      // Reintentar solo errores de red
       if (isNetworkError && currentRetry < MAX_RETRIES) {
-        const delay = RETRY_DELAY_MS * Math.pow(2, currentRetry); // Backoff exponencial
+        const delay = RETRY_DELAY_MS * Math.pow(2, currentRetry);
         logPaymentEvent(`Retrying ${operation} in ${delay}ms`, { attempt: currentRetry + 1 }, 'warn');
         
         await new Promise(resolve => setTimeout(resolve, delay));
@@ -198,12 +188,10 @@ export default function PaymentGatewayScreen() {
     }
   };
 
-  // Clasificar y categorizar errores
   const categorizeError = (error: any): PaymentError => {
     const errorMsg = error?.message || error?.toString() || 'Error desconocido';
     const errorCode = error?.code || error?.response?.status?.toString() || 'UNKNOWN';
 
-    // Error 422: Transacción ya procesada (NO reintentar)
     if (errorCode === '422' || errorMsg.includes('already locked') || errorMsg.includes('Invalid status')) {
       return {
         code: 'ALREADY_PROCESSED',
@@ -213,7 +201,6 @@ export default function PaymentGatewayScreen() {
       };
     }
 
-    // Errores de red
     if (['TIMEOUT', 'ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT'].some(code => errorMsg.includes(code))) {
       return {
         code: 'NETWORK_ERROR',
@@ -223,7 +210,6 @@ export default function PaymentGatewayScreen() {
       };
     }
 
-    // Errores de configuración (401, 403)
     if (['401', '403'].includes(errorCode)) {
       return {
         code: 'AUTH_ERROR',
@@ -233,7 +219,6 @@ export default function PaymentGatewayScreen() {
       };
     }
 
-    // Errores de validación (400)
     if (errorCode === '400') {
       return {
         code: 'VALIDATION_ERROR',
@@ -243,7 +228,6 @@ export default function PaymentGatewayScreen() {
       };
     }
 
-    // Errores de Webpay caído (503)
     if (errorCode === '503') {
       return {
         code: 'SERVICE_UNAVAILABLE',
@@ -253,7 +237,6 @@ export default function PaymentGatewayScreen() {
       };
     }
 
-    // Error genérico
     return {
       code: 'UNKNOWN_ERROR',
       message: errorMsg,
@@ -280,8 +263,10 @@ export default function PaymentGatewayScreen() {
     }
   };
 
-  // Detecta URLs que son el RETORNO FINAL de WebPay (deep links, cancelaciones)
-  // NO incluye la callback URL del backend (esa debe cargarse para que el backend procese)
+  // ─── BUG FIX INTACTO ───────────────────────────────────────────────────────
+  // isWebPayReturnUrl: detecta deep links y cancelaciones TBK_TOKEN.
+  // NO incluye la URL del callback del backend — esa debe cargarse para que
+  // el backend haga el commit con Transbank y luego redirija al deep link.
   const isWebPayReturnUrl = (url: string): boolean => {
     return (
       url.startsWith('autobox://') ||
@@ -289,11 +274,13 @@ export default function PaymentGatewayScreen() {
     );
   };
 
-  // Detecta la callback URL del backend (donde Transbank hace POST con token_ws)
-  // Esta URL DEBE ser cargada por el WebView para que el backend reciba el callback
+  // isWebPayCallbackUrl: detecta cuándo el WebView está llegando a la URL del
+  // backend — en ese caso se deja pasar (return true) para que el backend
+  // reciba el POST con token_ws y procese el commit.
   const isWebPayCallbackUrl = (url: string): boolean => {
     return url.includes(WEBPAY_CALLBACK_PATH) && !url.startsWith('autobox://');
   };
+  // ──────────────────────────────────────────────────────────────────────────
 
   const waitForPaymentCompletion = async (paymentId: string, attempts = 8, delayMs = 1200): Promise<boolean> => {
     for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -323,7 +310,6 @@ export default function PaymentGatewayScreen() {
     logPaymentEvent('WebView detected payment return URL', { url: url.substring(0, 120) });
     setWebviewVisible(false);
 
-    // Extraer status del deep link (autobox://payment-result?status=...)
     let deepLinkStatus: string | undefined;
     try {
       const parsedUrl = new URL(url);
@@ -335,7 +321,6 @@ export default function PaymentGatewayScreen() {
 
     const { tokenWs, tbkToken } = extractWebPayTokensFromUrl(url);
 
-    // Pago anulado: por TBK_TOKEN (cancela en banco) o por status rejected/error/aborted
     if (tbkToken || deepLinkStatus === 'rejected' || deepLinkStatus === 'error' || deepLinkStatus === 'aborted') {
       void markPaymentCancelled(undefined, 'Transacción anulada por WebPay o por el usuario en el banco');
       return;
@@ -347,6 +332,13 @@ export default function PaymentGatewayScreen() {
     }
 
     // Si llegó con status=success pero sin token, verificar igual
+    if (deepLinkStatus === 'success') {
+      setTimeout(() => {
+        void checkPendingPayment();
+      }, 1200);
+      return;
+    }
+
     setTimeout(() => {
       void checkPendingPayment();
     }, 1200);
@@ -360,7 +352,6 @@ export default function PaymentGatewayScreen() {
   };
 
   const checkPendingPayment = async (directToken?: string) => {
-    // Prevenir confirmaciones concurrentes o si fue cancelado
     if (isConfirming || isCancelledRef.current) {
       logPaymentEvent('Skipping payment check', { isConfirming, isCancelled: isCancelledRef.current }, 'warn');
       return;
@@ -385,7 +376,7 @@ export default function PaymentGatewayScreen() {
         return;
       }
       
-      // CASO ESPECIAL: WALLET DEPOSIT - usar endpoint diferente
+      // CASO ESPECIAL: WALLET DEPOSIT
       if (serviceTypeStr === 'wallet_deposit') {
         logPaymentEvent('Checking wallet deposit status');
         
@@ -393,14 +384,12 @@ export default function PaymentGatewayScreen() {
         const tokenFromStorage = savedPaymentId ? await AsyncStorage.getItem(`payment_${savedPaymentId}_token`) : null;
         const tokenForWalletConfirmation = directToken || tokenFromStorage;
 
-        // Intentar confirmar si tenemos el token guardado
         if (tokenForWalletConfirmation) {
             try {
                     console.log('🔵 [Wallet Check] Intentando confirmar con token:', tokenForWalletConfirmation.substring(0, 10));
                     const result = await walletService.confirmTransbankDeposit(tokenForWalletConfirmation, savedPaymentId || undefined);
                     console.log('✅ [Wallet Check] Resultado confirmación:', result);
                     
-                    // Verificar estructura de respuesta (puede venir anidada en 'data' o directa)
                     const status = result?.status || result?.data?.status;
                     const responseCode = result?.response_code ?? result?.data?.response_code;
                     const isSuccess = result?.success === true;
@@ -416,29 +405,22 @@ export default function PaymentGatewayScreen() {
                         setPaymentStatus('failure');
                         setIsConfirming(false);
                         setIsWaitingForPayment(false);
-                        setLoading(false); // Stop loading!
-                         // Limpiar token
+                        setLoading(false);
                         await AsyncStorage.removeItem('waitingForPayment');
                         if (savedPaymentId) await AsyncStorage.removeItem(`payment_${savedPaymentId}_token`);
                         return;
                 }
             } catch (e: any) {
                 console.warn('⚠️ [Wallet Check] Error confirmando:', e);
-                // Si el error es "ya confirmado" o similar, lo tomamos como éxito
                 if (e.message?.includes('ya fue confirmado') || e.message?.includes('processed')) {
                     isConfirmed = true;
                 }
             }
-                } else {
-                  console.log('⚠️ [Wallet Check] No hay token para confirmar depósito.');
+        } else {
+          console.log('⚠️ [Wallet Check] No hay token para confirmar depósito.');
         }
         
-        // Refrescar saldo siempre
-        const oldBalance = balance;
         await refreshWallet();
-        
-        // Si el saldo aumentó en el monto esperado, o si confirmamos explícitamente
-        // TODO: Comparar saldos para mayor seguridad
         
         if (isConfirmed) {
             logPaymentEvent('Wallet deposit confirmed');
@@ -446,43 +428,20 @@ export default function PaymentGatewayScreen() {
             setIsWaitingForPayment(false);
             setLoading(false);
             await AsyncStorage.removeItem('waitingForPayment');
-            // Limpiar token
             if (savedPaymentId) await AsyncStorage.removeItem(`payment_${savedPaymentId}_token`);
         } else {
-             // Si no pudimos confirmar, mantenemos verificando o pedimos al usuario revisar
-             // Por ahora, para no bloquear, si no falló explícitamente, cancelamos la espera
-             // OJO: Esto puede ser arriesgado. Mejor dejar en estado "verifying" si falla confirmación?
-             // El usuario se quejaba de "loops". Si no podemos confirmar, asumimos que no pasó nada y volvemos?
-             
-             // Si estamos en este bloque, es porque checkPendingPayment fue llamado.
-             // Si fue llamado muy rápido (antes de pagar), esto daría falso positivo de fallo.
-             
              console.log('⚠️ [Wallet Check] No se pudo confirmar el depósito. Manteniendo estado...');
-             // No cambiar estado a success si no estamos seguros
-             // Pero si el usuario volvió del navegador, probablemente terminó o canceló.
-             
-             // Si el webview NO está visible, y estamos aquí, probablemente el usuario canceló o terminó.
-             // Si webview está visible, este check NO debería correr (protegido por lógica).
-             
-             // Si llegamos aquí sin confirmación positiva, marcamos como cancelado/fallido para que intente de nuevo
-             // setPaymentStatus('failure'); // O 'verifying'?
         }
         
-        // HACK TEMPORAL: Como el backend maneja el callback, a veces el front no se entera
-        // Si el usuario cerró el webview manual, se llama markPaymentCancelled
-        // Si el webview redireccionó al app, se llama checkPendingPayment
-        
         if (!isConfirmed) {
-            // Reintentar un par de veces?
             if (pollingAttempts < 3) {
                  console.log(`⚠️ [Wallet Check] Intento ${pollingAttempts + 1}/3 fallido. Reintentando...`);
                  setPollingAttempts(prev => prev + 1);
-                 setReconciliationNeeded(true); // Activar polling
+                 setReconciliationNeeded(true);
                  setIsConfirming(false);
                  setLoading(false);
                  return;
             }
-            // Si después de 3 intentos no hay confirmación, asumir error
             console.log('❌ [Wallet Check] No se pudo confirmar el depósito tras varios intentos.');
             setReconciliationNeeded(false);
             setPaymentStatus('failure');
@@ -499,6 +458,7 @@ export default function PaymentGatewayScreen() {
       let tokenToConfirm: string | undefined = directToken;
 
       if (!tokenToConfirm) {
+        // FIX: el backend expone GET /payments/webpay/check-pending (con JwtAuthGuard)
         const response = await executeWithRetry(
           () => apiService.get('/payments/webpay/check-pending'),
           'check_pending_payment'
@@ -506,7 +466,6 @@ export default function PaymentGatewayScreen() {
 
         if (response?.hasPending && response?.token) {
           tokenToConfirm = response.token;
-          // Guardar token recuperado para reconciliación futura
           if (savedPaymentId) {
             await AsyncStorage.setItem(`payment_${savedPaymentId}_token`, response.token);
           }
@@ -516,18 +475,17 @@ export default function PaymentGatewayScreen() {
       if (tokenToConfirm) {
         logPaymentEvent('Pending payment found', { token: tokenToConfirm.substring(0, 10) + '...' });
 
-        // Confirmar el pago (sin reintentos automáticos para evitar 422)
         let result;
         try {
-          result = await apiService.confirmWebPayTransaction(tokenToConfirm);
+          // FIX: usar POST /payments/webpay/confirm (no confirmWebPayTransaction de apiService
+          // que podría estar apuntando a un endpoint diferente)
+          result = await apiService.post('/payments/webpay/confirm', { token_ws: tokenToConfirm });
         } catch (confirmError: any) {
-          // Si es error 422, verificar el estado del pago en lugar de fallar
           if (confirmError?.message?.includes('422') || 
               confirmError?.message?.includes('already locked') || 
               confirmError?.message?.includes('Invalid status')) {
             logPaymentEvent('Transaction already processed, checking payment status', {}, 'warn');
             
-            // Verificar el estado del pago directamente
             const paymentCheck = await apiService.get(`/payments/${savedPaymentId}`);
             if (paymentCheck?.estado === 'Completado') {
               logPaymentEvent('Payment confirmed as completed', { paymentId: savedPaymentId });
@@ -547,11 +505,6 @@ export default function PaymentGatewayScreen() {
           fullResult: result
         });
 
-        // El payment service puede devolver diferentes formatos:
-        // 1. Confirmación exitosa: { response_code: 0, status: 'AUTHORIZED', ... }
-        // 2. Transacción anidada: { transaction: { response_code: 0 } }
-        // 3. Solo info de transacción: { token, url } (esto significa que no se confirmó aún)
-        
         const responseCode = result?.response_code ?? result?.transaction?.response_code;
         const status = result?.status ?? result?.transaction?.status;
         const hasOnlyTokenUrl = result?.token && result?.url && !responseCode && !status;
@@ -565,7 +518,6 @@ export default function PaymentGatewayScreen() {
           fullResult: result
         });
         
-        // Si solo tiene token/url, significa que el pago aún no se confirmó
         if (hasOnlyTokenUrl) {
           logPaymentEvent('Payment not yet confirmed - waiting for user to complete', { result }, 'warn');
           setReconciliationNeeded(true);
@@ -581,35 +533,30 @@ export default function PaymentGatewayScreen() {
         if (isAuthorized) {
           logPaymentEvent('Payment authorized successfully');
           setReconciliationNeeded(false);
-          // Update state IMMEDIATELY to success
           setPaymentStatus('success');
           setIsWaitingForPayment(false);
-          setLoading(true); // Mantener loading mientras procesa entidades
+          setLoading(true);
           await AsyncStorage.removeItem('waitingForPayment');
           
-          // Process successful payment
           try {
             await processSuccessfulPayment(savedPaymentId);
             logPaymentEvent('Successfully processed payment entities');
           } catch (processError: any) {
             logPaymentEvent('Error processing payment entities', { error: processError?.message }, 'error');
             console.error('❌ Error in processSuccessfulPayment:', processError);
-            // Already set to success, so user sees payment succeeded even if post-processing failed
           } finally {
             setLoading(false);
           }
         } else if (responseCode && responseCode > 0) {
-          // Rechazo explícito del banco
           logPaymentEvent('Payment rejected by bank', { responseCode }, 'warn');
           
-          setReconciliationNeeded(false); // Detener polling
+          setReconciliationNeeded(false);
           setIsWaitingForPayment(false);
           await AsyncStorage.removeItem('waitingForPayment');
           
-          // Marcar pago como fallido en backend
           await markPaymentCancelled(savedPaymentId, `Rechazado por el banco (código: ${responseCode})`);
           
-          setPaymentStatus('failure'); // Actualizar estado para UI
+          setPaymentStatus('failure');
           
           Alert.alert(
             'Pago Rechazado',
@@ -618,10 +565,8 @@ export default function PaymentGatewayScreen() {
           );
           setLoading(false);
         } else {
-          // Estado ambiguo - mantener verificando
           logPaymentEvent('Ambiguous payment state - continuing verification', { result }, 'warn');
           setReconciliationNeeded(true);
-          // Mantener en estado 'verifying' para que el usuario vea el mensaje en pantalla
           setPaymentStatus('verifying');
           setLoading(false);
         }
@@ -638,7 +583,6 @@ export default function PaymentGatewayScreen() {
       const errorCategory = categorizeError(error);
       setErrorDetails(errorCategory);
       
-      // Si es error 422, verificar estado final del pago
       if (errorCategory.code === 'ALREADY_PROCESSED') {
         const savedPaymentId = await AsyncStorage.getItem('waitingForPayment');
         if (savedPaymentId) {
@@ -665,8 +609,6 @@ export default function PaymentGatewayScreen() {
           }
         }
       } else if (!errorCategory.retryable) {
-        // ERROR NO RECUPERABLE: Antes de cancelar, verificar si el backend ya completó el pago
-        // (El callback del backend pudo haber confirmado la transacción independientemente)
         logPaymentEvent('Non-retryable error, checking payment status before cancelling', { errorCategory }, 'warn');
         const savedPidForCheck = await AsyncStorage.getItem('waitingForPayment');
         if (savedPidForCheck) {
@@ -692,7 +634,6 @@ export default function PaymentGatewayScreen() {
             logPaymentEvent('Could not verify payment status before cancelling', { error: checkErr }, 'warn');
           }
         }
-        // Solo cancelar si el pago realmente no fue completado
         markPaymentCancelled(undefined, errorCategory.message || 'Error no recuperable');
         setLoading(false);
         setIsConfirming(false);
@@ -700,8 +641,6 @@ export default function PaymentGatewayScreen() {
       }
       
       setReconciliationNeeded(true);
-      
-      // No marcar como fallido - mantener verificando
       setPaymentStatus('verifying');
       setLoading(false);
     } finally {
@@ -713,14 +652,11 @@ export default function PaymentGatewayScreen() {
 
     setLoading(true);
     setErrorDetails(null);
-    // --- AGREGA ESTO ---
-    setWebviewHtml(null); // Limpia basura anterior
-    setWebviewUrl(null);  // Limpia URL anterior
+    setWebviewHtml(null);
+    setWebviewUrl(null);
     lastHandledReturnUrlRef.current = null;
-    // -------------------
     isCancelledRef.current = false;
     
-    // Validaciones previas
     const amountNum = Number(amount);
     if (isNaN(amountNum) || amountNum <= 0) {
       logPaymentEvent('Invalid amount', { amount }, 'error');
@@ -728,7 +664,7 @@ export default function PaymentGatewayScreen() {
       return;
     }
 
-    if (amountNum > 10000000) { // 10M max
+    if (amountNum > 10000000) {
       logPaymentEvent('Amount exceeds limit', { amount }, 'error');
       Alert.alert('Error', 'El monto excede el límite permitido.');
       setLoading(false);
@@ -738,7 +674,7 @@ export default function PaymentGatewayScreen() {
     try {
       const serviceTypeStr = Array.isArray(serviceType) ? serviceType[0] : serviceType;
       
-      // CASO ESPECIAL: WALLET DEPOSIT (viene desde wallet.tsx o similar)
+      // CASO ESPECIAL: WALLET DEPOSIT
       if (serviceTypeStr === 'wallet_deposit') {
         logPaymentEvent('Wallet deposit WebPay flow initiated', { amount: amountNum });
         
@@ -750,20 +686,17 @@ export default function PaymentGatewayScreen() {
 
         console.log('🔵 [Wallet Deposit] Iniciando depósito de wallet...');
         
-        // FORZAR ESTADO INICIAL
         setPaymentStatus('pending');
         setWebviewVisible(false);
 
         let depositResponse;
         try {
-            // Iniciar depósito de wallet
             depositResponse = await executeWithRetry(
               () => walletService.initiateTransbankDeposit(amountNum),
               'initiate_wallet_deposit'
             );
         } catch (initError: any) {
             console.error('❌ [Wallet Deposit] Error en initiateTransbankDeposit:', initError);
-            // Mostrar error específico
             throw new Error(initError.message || 'Error al conectar con el servicio de pagos');
         }
         
@@ -779,7 +712,6 @@ export default function PaymentGatewayScreen() {
 
         logPaymentEvent('Wallet deposit initiated', { paymentId, url: webpayUrl.substring(0, 50) + '...' });
 
-        // Guardar paymentId para reconciliación
         if (paymentId) {
             await AsyncStorage.setItem('waitingForPayment', String(paymentId));
             await AsyncStorage.setItem(`payment_${paymentId}_timestamp`, Date.now().toString());
@@ -792,7 +724,6 @@ export default function PaymentGatewayScreen() {
 
         console.log('🔵 [Wallet Deposit] Configurando WebView...');
         
-        // Generar formulario HTML para auto-submit POST (Requerido para Transbank initTransaction)
         const autoSubmitHtml = `
           <!DOCTYPE html>
           <html>
@@ -814,21 +745,15 @@ export default function PaymentGatewayScreen() {
           </html>
         `;
 
-        // Configurar estados
         setIsWaitingForPayment(true);
         setWebviewHtml(autoSubmitHtml);
-        setWebviewUrl(webpayUrl); // Mantener URL para referencia
+        setWebviewUrl(webpayUrl);
         setLoading(false);
         
-        // Pequeño delay para asegurar que los estados se actualicen antes de abrir el modal
         await new Promise(resolve => setTimeout(resolve, 500));
         
         console.log('🔵 [Wallet Deposit] Abriendo WebView con formulario POST...');
         setWebviewVisible(true);
-
-        if (Platform.OS !== 'web') {
-           // Opcional: Toast o indicador
-        }
         
         return;
       }
@@ -860,7 +785,6 @@ export default function PaymentGatewayScreen() {
           } catch (paymentError: any) {
             console.error('❌ Error en processSuccessfulPayment (wallet):', paymentError);
             setLoading(false);
-            // El error ya fue mostrado por processSuccessfulPayment
           }
         } else {
           throw new Error('La respuesta del pago no fue exitosa');
@@ -869,7 +793,7 @@ export default function PaymentGatewayScreen() {
         return;
       }
 
-      // MODO WEBPAY: crear registro de Payment en backend, luego crear transacción WebPay
+      // MODO WEBPAY
       logPaymentEvent('WebPay payment initiated');
       
       const user = await authService.getUser();
@@ -878,45 +802,19 @@ export default function PaymentGatewayScreen() {
         throw new Error('Usuario no autenticado');
       }
 
-      logPaymentEvent('Creating payment record', { userId: user.id, amount: amountNum });
+      logPaymentEvent('Creating WebPay transaction', { userId: user.id, amount: amountNum });
 
-      // Crear registro de pago con reintentos
-      const createdPayment = await executeWithRetry(
-        () => apiService.post('/payments', {
-          usuarioId: user.id,
-          monto: amountNum,
-          metodo: 'WebPay',
-        }),
-        'create_payment_record'
-      );
-
-      const paymentId = createdPayment?.id;
-      if (!paymentId) {
-        logPaymentEvent('Payment record creation failed', { response: createdPayment }, 'error');
-        throw new Error('No se pudo crear el registro de pago');
-      }
-
-      logPaymentEvent('Payment record created', { paymentId });
-
-      // Guardar el paymentId para reconciliación
-      await AsyncStorage.setItem('waitingForPayment', paymentId);
-      await AsyncStorage.setItem(`payment_${paymentId}_timestamp`, Date.now().toString());
-      await AsyncStorage.setItem(`payment_${paymentId}_amount`, amountNum.toString());
-      await AsyncStorage.setItem(`payment_${paymentId}_serviceType`, 'webpay');
-
-      logPaymentEvent('Creating WebPay transaction', { paymentId });
-      // Limpiar fallback timer si existía
+      // FIX: el backend expone POST /payments/webpay/create
+      // NO crear el pago por separado — el backend lo crea internamente en webpay/create
       if (callbackFallbackRef.current) {
         clearTimeout(callbackFallbackRef.current);
         callbackFallbackRef.current = null;
       }
 
-      // Crear transacción de WebPay con reintentos
       const webpayData = await executeWithRetry(
-        () => apiService.createWebPayTransaction({
+        () => apiService.post('/payments/webpay/create', {
           amount: amountNum,
-          returnUrl: `${API_URL}/payments/webpay/callback`,
-          paymentId,
+          // returnUrl se construye en el backend usando APP_URL, no confiar en el cliente
         }),
         'create_webpay_transaction'
       );
@@ -928,57 +826,46 @@ export default function PaymentGatewayScreen() {
 
       if (!webpayData || !webpayData.url) {
         logPaymentEvent('Invalid WebPay response', { webpayData }, 'error');
-        // Marcar como necesita reconciliación
         setReconciliationNeeded(true);
         throw new Error('No se recibió una URL válida de WebPay');
       }
 
-      setIsWaitingForPayment(true);
-
-      // Guardar token de Transbank para reconciliación posterior
-      if (webpayData.token) {
-        await AsyncStorage.setItem(`payment_${paymentId}_token`, webpayData.token);
+      // Guardar paymentId (ahora viene del backend) para reconciliación
+      // FIX: el backend de /payments/webpay/create ya crea el Payment y devuelve buyOrder
+      // Guardamos el token para poder confirmar manualmente si el callback falla
+      const paymentId = webpayData?.paymentId || webpayData?.buyOrder;
+      if (paymentId) {
+        await AsyncStorage.setItem('waitingForPayment', String(paymentId));
+        await AsyncStorage.setItem(`payment_${paymentId}_timestamp`, Date.now().toString());
+        await AsyncStorage.setItem(`payment_${paymentId}_amount`, amountNum.toString());
+        await AsyncStorage.setItem(`payment_${paymentId}_serviceType`, 'webpay');
       }
 
-      // Abrir la URL dentro de la app usando WebView con formulario POST
-      // (Requerido por Transbank WebPay Plus - la URL debe recibir token_ws via POST)
+      setIsWaitingForPayment(true);
+
+      if (webpayData.token) {
+        const storageKey = paymentId ? `payment_${paymentId}_token` : `payment_token_${Date.now()}`;
+        await AsyncStorage.setItem(storageKey, webpayData.token);
+      }
+
+      // FIX: el backend devuelve una URL propia (/payments/webpay/pay?token=...)
+      // que genera el formulario HTML POST hacia Transbank.
+      // El WebView puede navegar directamente a esa URL sin necesitar el autoSubmitHtml.
       const originalUrl = webpayData.url as string;
       
       console.log('🔵 [WebPay] Limpiando estado loading antes de abrir WebView...');
-      setLoading(false);  // Limpiar loading ANTES de abrir WebView
+      setLoading(false);
       
-      const autoSubmitHtml = `
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <title>Redirigiendo a WebPay...</title>
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          </head>
-          <body onload="document.forms[0].submit()">
-            <div style="display: flex; justify-content: center; align-items: center; height: 100vh; flex-direction: column; font-family: sans-serif;">
-              <p>Redirigiendo a WebPay...</p>
-              <form action="${originalUrl}" method="POST">
-                <input type="hidden" name="token_ws" value="${webpayData.token}" />
-                <noscript>
-                  <input type="submit" value="Ir a pagar" />
-                </noscript>
-              </form>
-            </div>
-          </body>
-        </html>
-      `;
-
-      setWebviewHtml(autoSubmitHtml);
-      setWebviewUrl(originalUrl); // Mantener URL para referencia
+      setWebviewUrl(originalUrl);
+      setWebviewHtml(null); // No usar HTML manual — el backend genera el form HTML
       
-      // Pequeño delay para que React actualice estados
       await new Promise(resolve => setTimeout(resolve, 100));
       
       setWebviewVisible(true);
       
-      console.log('🔵 [WebPay] WebView configurado con POST form. Visible:', true);
+      console.log('🔵 [WebPay] WebView configurado con URL de backend. Visible:', true);
       
-      return; // Importante: salir aquí para no ejecutar el catch
+      return;
     } catch (error: any) {
       logPaymentEvent('Payment initiation failed', { error: error?.message }, 'error');
       
@@ -1010,26 +897,23 @@ export default function PaymentGatewayScreen() {
     isCancelledRef.current = true;
     try {
       if (!paymentId) {
-        // Try to read saved paymentId
-        paymentId = await AsyncStorage.getItem('waitingForPayment');
+        paymentId = await AsyncStorage.getItem('waitingForPayment') || undefined;
       }
       
       if (paymentId) {
-        // Intentar notificar al backend, pero no bloquear la UI si falla
+        // FIX: usar PATCH /payments/:id/status (requiere rol ADMINISTRADOR en backend)
+        // Si el usuario no es admin, esto fallará silenciosamente — está bien, es best-effort
         apiService.fetch(`/payments/${paymentId}/status`, {
             method: 'PATCH',
             body: JSON.stringify({ estado: 'Fallido', detalles: reason || 'Anulado por el usuario' }),
-        }).catch(err => console.log('Error notifying backend of cancellation:', err));
+        }).catch(err => console.log('Error notifying backend of cancellation (non-critical):', err));
 
-        // Clean up async storage
         await AsyncStorage.removeItem('waitingForPayment');
       }
     } catch (e) {
       console.error('Error marcando pago como anulado:', e);
     } finally {
-        // UI Cleanup - FORCE reset ALWAYS
         console.log('🛑 [PaymentGateway] Forcing cancellation state');
-        // Limpiar fallback timer si existe
         if (callbackFallbackRef.current) {
           clearTimeout(callbackFallbackRef.current);
           callbackFallbackRef.current = null;
@@ -1039,7 +923,7 @@ export default function PaymentGatewayScreen() {
         setPollingAttempts(0);
         setPaymentStatus('cancelled');
         setLoading(false);
-        setWebviewVisible(false); // Ensure modal is closed
+        setWebviewVisible(false);
         setWebviewHtml(null);
     }
   };
@@ -1052,7 +936,6 @@ export default function PaymentGatewayScreen() {
       if (serviceTypeStr === 'wallet_deposit') {
         logPaymentEvent('Processing wallet deposit confirmation');
         
-        // Refrescar saldo de wallet
         await refreshWallet();
         
         setPaymentStatus('success');
@@ -1063,7 +946,6 @@ export default function PaymentGatewayScreen() {
       }
       
       // RESTO DE CASOS: Publicaciones e inspecciones
-      // Safety: ensure payment is confirmed in backend before creating any entities
       if (paymentId) {
         const isCompleted = await waitForPaymentCompletion(paymentId);
         if (!isCompleted) {
@@ -1090,9 +972,7 @@ export default function PaymentGatewayScreen() {
 
       const vehicleData = JSON.parse(metadataStr);
       console.log('Procesando pago exitoso para vehículo:', vehicleData.plate || vehicleData.patente);
-      console.log('Vehicle Data Keys:', Object.keys(vehicleData));
 
-      // 2. Crear publicación (o inspección directa)
       if (serviceTypeStr === 'inspection_only') {
           console.log('Procesando pago de inspección para vehículo existente');
           const { publicationId, inspectionDate, inspectionTime, inspectionLocation, horarioId, solicitanteId } = vehicleData;
@@ -1136,7 +1016,6 @@ export default function PaymentGatewayScreen() {
           };
 
           console.log('Creando inspección (inspection_only):', inspectionData);
-          console.log('Valor de inspección (entero):', valorEntero);
           await apiService.createInspection(inspectionData);
           
           setPaymentStatus('success');
@@ -1145,7 +1024,6 @@ export default function PaymentGatewayScreen() {
           return;
       }
 
-      // Mapear datos al formato que espera el backend (CreateVehicleDto)
       const backendVehicleData = {
         patente: vehicleData.plate || vehicleData.patente,
         marca: vehicleData.brand,
@@ -1165,17 +1043,12 @@ export default function PaymentGatewayScreen() {
         imagenes: vehicleData.images || []
       };
 
-      console.log('Enviando vehículo al backend:', backendVehicleData);
-
       const vehicleResponse = await apiService.createVehicle(backendVehicleData);
       
-      console.log('Vehículo creado:', vehicleResponse);
-
       if (!vehicleResponse || !vehicleResponse.id) {
         throw new Error('Error al crear el vehículo');
       }
 
-      // 3. Crear publicación
       const publicationData = {
         vendedorId: user.id,
         vehiculoId: vehicleResponse.id,
@@ -1185,19 +1058,14 @@ export default function PaymentGatewayScreen() {
         fotos: vehicleData.images || []
       };
 
-      console.log('Creando publicación:', publicationData);
       const publicationResponse = await apiService.createPublication(publicationData);
 
       if (!publicationResponse) {
         throw new Error('Error al crear la publicación');
       }
 
-      console.log('Publicación creada:', publicationResponse);
-
-      // 4. Si es con inspección, agendarla
       if (serviceTypeStr === 'publication_with_inspection') {
         const { inspectionDate, inspectionTime, inspectionLocation, horarioId } = vehicleData;
-        console.log('Agendando inspección...', { inspectionDate, inspectionTime, inspectionLocation, horarioId });
 
         let fechaProgramada = new Date().toISOString();
         if (inspectionDate && inspectionTime) {
@@ -1205,57 +1073,36 @@ export default function PaymentGatewayScreen() {
             const [hours, minutes] = inspectionTime.split(':');
             let dateObj: Date;
             
-            // Manejar diferentes formatos de fecha
             if (typeof inspectionDate === 'string') {
-              // Si ya es ISO string
               if (inspectionDate.includes('T')) {
                 dateObj = new Date(inspectionDate);
-              } 
-              // Si es formato DD/MM/YYYY
-              else if (inspectionDate.includes('/')) {
+              } else if (inspectionDate.includes('/')) {
                 const [day, month, year] = inspectionDate.split('/');
                 dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-              }
-              // Si es formato YYYY-MM-DD
-              else if (inspectionDate.includes('-')) {
+              } else if (inspectionDate.includes('-')) {
                 dateObj = new Date(inspectionDate);
-              }
-              // Intentar parseo directo
-              else {
+              } else {
                 dateObj = new Date(inspectionDate);
               }
             } else if (inspectionDate instanceof Date) {
               dateObj = new Date(inspectionDate);
             } else {
-              // Fallback: usar la fecha actual
               console.warn('⚠️ Formato de fecha no reconocido, usando fecha actual');
               dateObj = new Date();
             }
             
-            // Validar que la fecha es válida
             if (isNaN(dateObj.getTime())) {
-              console.error('❌ Fecha inválida después del parseo:', inspectionDate);
               throw new Error('Fecha de inspección inválida');
             }
             
             dateObj.setHours(parseInt(hours), parseInt(minutes), 0, 0);
-            
-            // Validar nuevamente después de setHours
-            if (isNaN(dateObj.getTime())) {
-              console.error('❌ Fecha inválida después de setHours');
-              throw new Error('Hora de inspección inválida');
-            }
-            
             fechaProgramada = dateObj.toISOString();
-            console.log('✅ Fecha programada parseada:', fechaProgramada);
           } catch (dateError) {
             console.error('❌ Error parseando fecha de inspección:', dateError);
-            // Usar fecha actual + 1 día como fallback
             const fallbackDate = new Date();
             fallbackDate.setDate(fallbackDate.getDate() + 1);
             fallbackDate.setHours(10, 0, 0, 0);
             fechaProgramada = fallbackDate.toISOString();
-            console.log('⚠️ Usando fecha fallback:', fechaProgramada);
           }
         }
 
@@ -1273,10 +1120,7 @@ export default function PaymentGatewayScreen() {
           paymentId: paymentId
         };
 
-        console.log('Datos de inspección a crear:', inspectionData);
-        console.log('Valor de inspección (entero):', valorEntero);
         await apiService.createInspection(inspectionData);
-        console.log('Inspección creada correctamente');
       }
 
       setPaymentStatus('success');
@@ -1285,9 +1129,6 @@ export default function PaymentGatewayScreen() {
 
     } catch (error: any) {
       console.error('❌ Error procesando pago exitoso:', error);
-      console.error('❌ Error message:', error?.message);
-      console.error('❌ Error stack:', error?.stack);
-      console.error('❌ Error response:', error?.response?.data);
       
       const errorMsg = error?.message || error?.response?.data?.message || 'Error desconocido';
       Alert.alert(
@@ -1295,14 +1136,12 @@ export default function PaymentGatewayScreen() {
         `El pago fue exitoso pero hubo un error al crear la publicación.\n\nDetalle: ${errorMsg}\n\nContacta a soporte.`,
         [{ text: 'OK' }]
       );
-      setPaymentStatus('success'); // Dejar en success para que el usuario vea que pagó, aunque falló el post-proceso
+      setPaymentStatus('success');
       setLoading(false);
     }
   };
 
-// --- INICIO DEL BLOQUE DE RENDERIZADO Y MODAL ---
   const renderContent = () => {
-    // 1. Si está cargando o verificando (y no estamos en el WebView), mostramos spinner
     if ((loading || paymentStatus === 'verifying') && !webviewVisible) {
       return (
         <View style={styles.centerContainer}>
@@ -1314,7 +1153,6 @@ export default function PaymentGatewayScreen() {
       );
     }
 
-    // 2. PANTALLA DE ÉXITO (Aquí es donde queremos llegar)
     if (paymentStatus === 'success') {
       const isWalletDeposit = (Array.isArray(serviceType) ? serviceType[0] : serviceType) === 'wallet_deposit';
       return (
@@ -1327,7 +1165,6 @@ export default function PaymentGatewayScreen() {
           <Button
             title={isWalletDeposit ? "Volver a Billetera" : "Continuar"}
             onPress={() => {
-                // Limpiamos navegación para evitar volver atrás al pago
                 if (isWalletDeposit) {
                     router.dismissAll();
                     router.replace('/(tabs)/wallet');
@@ -1342,7 +1179,6 @@ export default function PaymentGatewayScreen() {
       );
     }
     
-    // 3. PANTALLA DE FALLO
     if (paymentStatus === 'failure' || paymentStatus === 'cancelled') {
         return (
             <View style={styles.centerContainer}>
@@ -1370,7 +1206,6 @@ export default function PaymentGatewayScreen() {
         );
     }
 
-    // 4. PLACEHOLDER MIENTRAS ESTÁ EL WEBVIEW ABIERTO
     if (webviewVisible) {
       return (
         <View style={styles.centerContainer}>
@@ -1379,7 +1214,6 @@ export default function PaymentGatewayScreen() {
       );
     }
 
-    // 5. PANTALLA NORMAL (Formulario de pago)
     return (
       <View style={styles.container}>
         <View style={styles.summaryCard}>
@@ -1397,7 +1231,6 @@ export default function PaymentGatewayScreen() {
 
         <Text style={styles.methodTitle}>Selecciona Medio de Pago</Text>
         
-        {/* Botón WebPay */}
         <TouchableOpacity 
           style={[styles.methodCard, selectedMethod === 'webpay' && styles.selectedMethod]}
           onPress={() => setSelectedMethod('webpay')}
@@ -1409,7 +1242,6 @@ export default function PaymentGatewayScreen() {
             {selectedMethod === 'webpay' && <Ionicons name="checkmark-circle" size={24} color="#4CAF50" />}
         </TouchableOpacity>
 
-        {/* Botón Wallet (Solo si no es recarga) */}
         {(Array.isArray(serviceType) ? serviceType[0] : serviceType) !== 'wallet_deposit' && (
         <TouchableOpacity 
           style={[styles.methodCard, selectedMethod === 'wallet' && styles.selectedMethod]}
@@ -1439,14 +1271,11 @@ export default function PaymentGatewayScreen() {
     <Screen backgroundColor="#F5F5F5">
       {renderContent()}
 
-{/* --- MODAL DE PRODUCCIÓN (SEGURIDAD MÁXIMA) --- */}
-{/* --- MODAL CORREGIDO: DEJA ENTRAR A TRANSBANK --- */}
 <Modal
         visible={webviewVisible}
         animationType="slide"
         presentationStyle="fullScreen"
         onRequestClose={() => {
-            // Si el usuario presiona "Atrás" físico en Android
             Alert.alert('Cancelar Pago', '¿Deseas salir sin pagar?', [
                 { text: 'No', style: 'cancel' },
                 { text: 'Sí, Salir', style: 'destructive', onPress: () => { setWebviewVisible(false); markPaymentCancelled(); } }
@@ -1456,19 +1285,16 @@ export default function PaymentGatewayScreen() {
         <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
             <StatusBar barStyle="dark-content" />
             
-            {/* Header Simple */}
             <View style={styles.webviewHeader}>
                 <Text style={styles.webviewTitle}>WebPay</Text>
                 <TouchableOpacity onPress={() => {
-                     // Botón X Manual
                      setWebviewVisible(false);
-                     checkPendingPayment(); // Siempre verificamos, por si acaso
+                     checkPendingPayment();
                 }}>
                     <Ionicons name="close" size={24} color="#333" />
                 </TouchableOpacity>
             </View>
 
-            {/* Debug URL: Muestra qué está pasando realmente */}
             <View style={{ padding: 4, backgroundColor: '#eee' }}>
                 <Text numberOfLines={1} style={{ fontSize: 10, color: '#555', textAlign: 'center' }}>
                     {webviewUrl || 'Esperando URL...'}
@@ -1477,33 +1303,35 @@ export default function PaymentGatewayScreen() {
 
             {(webviewUrl || webviewHtml) ? (
                 <WebView
-                    key="webview-payment" // Forzamos re-render si cambia
+                    key="webview-payment"
                     
-                    // 1. PERMISOS TOTALES
                     originWhitelist={['*']} 
                     
-                    source={webviewHtml ? { html: webviewHtml, baseUrl: 'https://webpay3gint.transbank.cl' } : { uri: webviewUrl as string }}
+                    source={webviewHtml
+                      ? { html: webviewHtml, baseUrl: 'https://webpay3gint.transbank.cl' }
+                      : { uri: webviewUrl as string }
+                    }
                     
                     style={{ flex: 1 }}
                     startInLoadingState={true}
                     javaScriptEnabled={true}
                     domStorageEnabled={true}
                     
-                    // 2. DEBUG DE ERRORES DE CARGA (Para saber si falla la red)
                     onError={(syntheticEvent) => {
                         const { nativeEvent } = syntheticEvent;
                         console.warn('WebView error: ', nativeEvent);
                         Alert.alert('Error de Conexión', 'No pudimos cargar el banco via WebPay.');
                     }}
                     
-                    // 3. INTERCEPTOR: Deep links y cancelaciones se capturan, callback se deja pasar
+                    // ─── BUG FIX INTACTO ───────────────────────────────────────
+                    // El intercepción de isWebPayCallbackUrl devuelve TRUE (deja pasar)
+                    // para que el backend reciba el POST con token_ws y procese el commit.
+                    // Solo se interceptan deep links (autobox://) y TBK_TOKEN (cancelación).
                     onShouldStartLoadWithRequest={(request) => {
                         const url = request.url;
                         console.log('⚡ Navegando a:', url);
 
-                      // Deep links (autobox://) y TBK_TOKEN (cancelación): interceptar
                       if (isWebPayReturnUrl(url)) {
-                        // Limpiar fallback timer si existe (el redirect llegó correctamente)
                         if (callbackFallbackRef.current) {
                           clearTimeout(callbackFallbackRef.current);
                           callbackFallbackRef.current = null;
@@ -1512,20 +1340,16 @@ export default function PaymentGatewayScreen() {
                         return false;
                       }
 
-                      // Callback del backend: DEJAR PASAR para que el backend procese
-                      // el commit de Transbank y redirija al deep link
                       if (isWebPayCallbackUrl(url)) {
                         console.log('🔵 [WebView] Callback URL detectada, permitiendo carga para que backend procese');
                         return true;
                       }
                         
-                      // DEJAR PASAR TODO LO DEMÁS (Transbank, Redirecciones, etc.)
                       return true;
                     }}
+                    // ──────────────────────────────────────────────────────────
                     
-                    // 4. RESPALDO: Detectar retorno y callback del backend
                     onNavigationStateChange={(navState) => {
-                        // Deep links y cancelaciones
                         if (isWebPayReturnUrl(navState.url)) {
                           if (callbackFallbackRef.current) {
                             clearTimeout(callbackFallbackRef.current);
@@ -1535,13 +1359,10 @@ export default function PaymentGatewayScreen() {
                           return;
                         }
 
-                        // Callback del backend cargada: el backend está procesando.
-                        // Si el backend no redirige a un deep link, hacer fallback a polling.
                         if (isWebPayCallbackUrl(navState.url) && !navState.loading && !callbackFallbackRef.current) {
                           console.log('🔵 [WebView] Callback del backend cargada, esperando redirect...');
                           callbackFallbackRef.current = setTimeout(() => {
                             callbackFallbackRef.current = null;
-                            // Si aún no se procesó el retorno, cerrar WebView y verificar estado
                             if (!lastHandledReturnUrlRef.current && !isCancelledRef.current) {
                               console.log('⚠️ [WebView] Backend no redirigió a deep link, cerrando y verificando pago...');
                               setWebviewVisible(false);

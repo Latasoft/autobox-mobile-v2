@@ -48,14 +48,12 @@ export interface MechanicPayment {
   fecha_pago: string;
   estado?: string;
   created_at?: string;
-  // Relación mecanico que devuelve el backend (leftJoinAndSelect)
   mecanico?: {
     id: string;
     primerNombre: string;
     primerApellido: string;
     email?: string;
   };
-  // Alias usado por el frontend para mostrar nombre (mapeado al cargar)
   mechanic?: {
     id: string;
     firstName: string;
@@ -83,16 +81,10 @@ export interface FinancialSummary {
   totalMechanicWithdrawals: number;
 }
 
-
-
 // ==========================================
 // 2. CONFIGURACIÓN Y SERVICIO
 // ==========================================
 
-/**
- * Mapea el campo 'mecanico' (snake_case del backend) al alias 'mechanic'
- * (camelCase) que usa la UI para mostrar nombre del mecánico.
- */
 function normalizeMechanicPayment(item: MechanicPayment): MechanicPayment {
   if (item.mecanico && !item.mechanic) {
     item.mechanic = {
@@ -132,6 +124,7 @@ const paymentService = {
 
   async updatePaymentStatus(id: string, status: PaymentStatus): Promise<any> {
     try {
+      // FIX: el backend expone PATCH /payments/:id/status (con RolesGuard ADMINISTRADOR)
       const response = await apiService.patch(`/payments/${id}/status`, { estado: status });
       return response;
     } catch (error) {
@@ -142,7 +135,8 @@ const paymentService = {
 
   async getFinancialSummary(): Promise<FinancialSummary> {
     try {
-      const response = await apiService.get('/payments/summary/financial');
+      // FIX: el backend expone GET /payments/summary (no /payments/summary/financial)
+      const response = await apiService.get('/payments/summary');
       return response || { totalConfirmed: 0, totalUserBalance: 0, totalMechanicWithdrawals: 0 };
     } catch (error) {
       return { totalConfirmed: 0, totalUserBalance: 0, totalMechanicWithdrawals: 0 };
@@ -150,14 +144,28 @@ const paymentService = {
   },
 
   // ---------------------------------------------------------
-  // 3. GESTIÓN DE PAGOS A MECÁNICOS
+  // 2. WEBPAY
   // ---------------------------------------------------------
 
   /**
-   * getMechanicPayouts — Pagos de UN mecánico específico (vista del mecánico).
-   * Endpoint: GET /admin/mechanics/:id/payouts  →  MechanicsService.getPayouts()
-   * FIX: Antes llamaba a /payments/mechanic/:id (ruta inexistente).
+   * Confirma una transacción WebPay usando el token.
+   * FIX: el backend expone POST /payments/webpay/confirm (no /payments/webpay/callback directo)
+   * El callback lo procesa el backend solo; el frontend confirma vía /webpay/confirm.
    */
+  async confirmWebPayTransaction(token: string): Promise<any> {
+    try {
+      const response = await apiService.post('/payments/webpay/confirm', { token_ws: token });
+      return response;
+    } catch (error) {
+      console.error('Error confirmando transacción WebPay:', error);
+      throw error;
+    }
+  },
+
+  // ---------------------------------------------------------
+  // 3. GESTIÓN DE PAGOS A MECÁNICOS
+  // ---------------------------------------------------------
+
   async getMechanicPayouts(mechanicId: string): Promise<MechanicPayment[]> {
     try {
       const response = await apiService.get(`/mechanics/${mechanicId}/payouts`);
@@ -169,12 +177,6 @@ const paymentService = {
     }
   },
 
-  /**
-   * getAllMechanicPayouts — Todos los pagos a mecánicos (vista admin con filtros).
-   * Endpoint: GET /admin/mechanic-payments (con query params opcionales)
-   * FIX: Antes llamaba a /admin/mechanic-payouts (ruta inexistente en el controller).
-   * FIX: El backend devuelve { data, total, limit, offset } — se extrae data[].
-   */
   async getAllMechanicPayouts(
     sedeId?: number,
     mechanicId?: string,
@@ -195,8 +197,6 @@ const paymentService = {
       const query = params.toString() ? `?${params.toString()}` : '';
       const response: MechanicPaymentsResponse = await apiService.get(`/admin/mechanic-payments${query}`);
 
-      // FIX CRÍTICO: el backend devuelve { data: [], total, limit, offset }
-      // El frontend esperaba un array directo → crash silencioso con .filter()
       const items: MechanicPayment[] = response?.data || [];
       return items.map(normalizeMechanicPayment);
     } catch (error) {
@@ -261,11 +261,11 @@ const paymentService = {
   getStatusLabel(estado?: string): string {
     if (!estado) return 'Desconocido';
     const upperStatus = estado.toUpperCase();
-    if (upperStatus === 'PENDING') return 'Pendiente';
-    if (upperStatus === 'COMPLETED' || upperStatus === 'AUTHORIZED') return 'Aprobado';
-    if (upperStatus === 'FAILED') return 'Fallido';
-    if (upperStatus === 'REFUNDED') return 'Reembolsado';
-    if (upperStatus === 'REJECTED') return 'Rechazado';
+    if (upperStatus === 'PENDING' || upperStatus === 'PENDIENTE') return 'Pendiente';
+    if (upperStatus === 'COMPLETED' || upperStatus === 'COMPLETADO' || upperStatus === 'AUTHORIZED') return 'Aprobado';
+    if (upperStatus === 'FAILED' || upperStatus === 'FALLIDO') return 'Fallido';
+    if (upperStatus === 'REFUNDED' || upperStatus === 'REEMBOLSADO') return 'Reembolsado';
+    if (upperStatus === 'REJECTED' || upperStatus === 'RECHAZADO') return 'Rechazado';
     return estado;
   }
 };
