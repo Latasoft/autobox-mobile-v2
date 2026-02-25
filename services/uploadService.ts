@@ -106,6 +106,26 @@ class UploadService {
   }
 
   /**
+   * Normaliza un folder a los valores válidos del enum del DTO del backend.
+   * El backend solo acepta: 'vehicles' | 'inspections' | 'users' | 'publications' | 'receipts'
+   */
+  private normalizeFolder(folder: string): string {
+    const VALID_FOLDERS = ['vehicles', 'inspections', 'users', 'publications', 'receipts'];
+    if (VALID_FOLDERS.includes(folder)) return folder;
+
+    // Mapear aliases conocidos
+    if (folder === 'avatars' || folder.startsWith('users') || folder.startsWith('mechanics')) return 'users';
+    if (folder === 'inspection-reports' || folder === 'inspection-media' || folder.startsWith('inspections')) return 'inspections';
+    if (folder.startsWith('vehicles')) return 'vehicles';
+    if (folder.startsWith('publications')) return 'publications';
+    if (folder === 'receipts' || folder.startsWith('receipts')) return 'receipts';
+
+    // Fallback
+    console.warn(`[UploadService] Folder "${folder}" no es válido para el backend, usando "users" como fallback.`);
+    return 'users';
+  }
+
+  /**
    * Sube un archivo a Cloudinary usando firma del backend
    * (ESTA ES LA LÓGICA NUEVA QUE YA TENÍAMOS BIEN)
    */
@@ -119,11 +139,14 @@ class UploadService {
     try {
       console.log(`[UploadService] Getting presigned data for ${fileName} (${fileType})`);
       
+      // Normalizar folder al enum válido del backend antes de enviar
+      const normalizedFolder = this.normalizeFolder(folder);
+
       // 1. Pedir credenciales al Backend
       const response = await apiService.post('/uploads/presigned-upload', {
         fileName,
         contentType: fileType,
-        folder,
+        folder: normalizedFolder,
       });
 
       // Extraemos todo lo que nos mandó el backend
@@ -147,7 +170,10 @@ class UploadService {
             api_key: apiKey,
             timestamp: String(timestamp),
             signature: signature,
-            folder: folder,
+            // IMPORTANTE: NO enviar 'folder' por separado.
+            // El public_id ya contiene la carpeta como prefijo (ej: "vehicles/123_file").
+            // Si se envía 'folder' junto con un public_id que ya lo contiene,
+            // Cloudinary almacena el archivo en una ruta DUPLICADA (ej: vehicles/vehicles/123_file).
             public_id: publicId
         }
       });

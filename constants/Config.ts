@@ -6,7 +6,7 @@ const DEFAULT_LOCAL_IP = '192.168.56.1'; // <-- Tu IP local
 const EMULATOR_IP = '10.0.2.2';
 
 const isAndroidEmulator = Platform.OS === 'android' && !Device.isDevice;
-const LOCAL_IP = process.env.EXPO_PUBLIC_LOCAL_IP || (isAndroidEmulator ? EMULATOR_IP : DEFAULT_LOCAL_IP);
+export const LOCAL_IP = process.env.EXPO_PUBLIC_LOCAL_IP || (isAndroidEmulator ? EMULATOR_IP : DEFAULT_LOCAL_IP);
 
 // 2. Definición de URLs (Lógica Híbrida)
 // Si existe la variable de entorno (Render), úsala. Si no, usa la Local.

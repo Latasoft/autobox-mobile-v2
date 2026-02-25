@@ -434,47 +434,24 @@ class AdminService {
 
   async uploadMechanicCertificate(mechanicId: string, fileUri: string): Promise<{ url: string }> {
     try {
-      // 1. Obtener URL pre-firmada para subir
       const filename = fileUri.split('/').pop() || 'certificate.pdf';
-      const fileKey = `mechanics/${mechanicId}/certificates/${Date.now()}_${filename}`;
 
-      const presignedResponse = await fetch(`${API_URL}/uploads/presigned-upload`, {
-        method: 'POST',
-        headers: await this.getHeaders(),
-        body: JSON.stringify({
-          fileName: filename,
-          fileType: 'application/pdf',
-          folder: `mechanics/${mechanicId}/certificates`,
-        }),
-      });
+      // Delegar al uploadService que maneja Cloudinary correctamente (POST multipart con firma).
+      // Se usa carpeta 'receipts' (válida en el enum del DTO) para documentos PDF de mecánicos.
+      const uploadService = (await import('./uploadService')).default;
+      const result = await uploadService.uploadFile(
+        fileUri,
+        filename,
+        'application/pdf',
+        'receipts'
+      );
 
-      if (!presignedResponse.ok) {
-        throw new Error('Error al generar URL de subida');
-      }
-
-      const { uploadUrl, key } = await presignedResponse.json();
-
-      // 2. Subir archivo a S3 usando la URL pre-firmada
-      const fileBlob = await fetch(fileUri).then(r => r.blob());
-
-      const uploadResponse = await fetch(uploadUrl, {
-        method: 'PUT',
-        body: fileBlob,
-        headers: {
-          'Content-Type': 'application/pdf',
-        },
-      });
-
-      if (!uploadResponse.ok) {
-        throw new Error('Error al subir el archivo a S3');
-      }
-
-      // 3. Notificar al backend que el certificado fue subido
+      // Notificar al backend que el certificado fue subido
       const headers = await this.getHeaders();
       const response = await fetch(`${API_URL}/admin/mechanics/${mechanicId}/certificate`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ fileKey: key }),
+        body: JSON.stringify({ fileKey: result.key }),
       });
 
       if (!response.ok) {
