@@ -1,4 +1,65 @@
-import { LOCAL_IP } from '../constants/Config';
+import { API_URL, LOCAL_IP } from '../constants/Config';
+
+const API_BASE_URL = API_URL.replace(/\/api\/?$/, '');
+
+const extractUrlFromUnknown = (value: unknown): string => {
+  if (!value) return '';
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return '';
+
+    // Soporte para strings JSON serializados (objeto o arreglo)
+    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        return extractUrlFromUnknown(parsed);
+      } catch {
+        return trimmed;
+      }
+    }
+
+    return trimmed;
+  }
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const candidate = extractUrlFromUnknown(entry);
+      if (candidate) return candidate;
+    }
+    return '';
+  }
+
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    const priorityKeys = [
+      'secure_url',
+      'url',
+      'publicUrl',
+      'public_url',
+      'foto_url',
+      'imagen_url',
+      'imageUrl',
+      'uri',
+      'src',
+      'path',
+    ];
+
+    for (const key of priorityKeys) {
+      if (key in obj) {
+        const candidate = extractUrlFromUnknown(obj[key]);
+        if (candidate) return candidate;
+      }
+    }
+
+    for (const key of Object.keys(obj)) {
+      const candidate = extractUrlFromUnknown(obj[key]);
+      if (candidate) return candidate;
+    }
+  }
+
+  return '';
+};
 
 /**
  * Normaliza y corrige URLs de imágenes para que sean visibles en la app.
@@ -7,10 +68,29 @@ import { LOCAL_IP } from '../constants/Config';
  * - Corrige rutas duplicadas de Cloudinary (ej: vehicles/vehicles/ → vehicles/).
  * - Retorna cadena vacía si la URL es inválida.
  */
-export const getImageUrl = (url: string | null | undefined): string => {
-  if (!url || typeof url !== 'string') return '';
+export const getImageUrl = (url: unknown): string => {
+  let processed = extractUrlFromUnknown(url);
+  if (!processed) return '';
 
-  let processed = url.trim();
+  // Normalizar comillas y slashes escapados
+  processed = processed.replace(/^['"]+|['"]+$/g, '').replace(/\\/g, '/').trim();
+  if (!processed) return '';
+
+  // URLs esquema-relativo
+  if (processed.startsWith('//')) {
+    processed = `https:${processed}`;
+  }
+
+  // Rutas relativas del backend
+  if (processed.startsWith('/')) {
+    processed = `${API_BASE_URL}${processed}`;
+  } else if (!/^(https?:|file:|content:|data:|blob:)/i.test(processed)) {
+    if (processed.includes('res.cloudinary.com')) {
+      processed = `https://${processed.replace(/^\/+/, '')}`;
+    } else if (processed.startsWith('uploads/')) {
+      processed = `${API_BASE_URL}/${processed}`;
+    }
+  }
 
   // Desarrollo local: reemplazar localhost por IP de red
   if (processed.includes('localhost')) {
@@ -32,7 +112,8 @@ export const getImageUrl = (url: string | null | undefined): string => {
     );
   }
 
-  return processed;
+  // Sanitizar caracteres para URL final
+  return encodeURI(processed);
 };
 
 /**

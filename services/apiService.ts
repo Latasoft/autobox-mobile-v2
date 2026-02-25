@@ -4,6 +4,41 @@ import { Inspection, Vehicle, User } from '../types';
 import { API_URL } from '../constants/Config';
 
 class ApiService {
+  private resolvePhotoUrl(photo: any): string | undefined {
+    if (!photo) return undefined;
+    if (typeof photo === 'string') return photo;
+    if (typeof photo === 'object') {
+      return photo.url || photo.secure_url || photo.publicUrl || photo.public_url || photo.uri;
+    }
+    return undefined;
+  }
+
+  private normalizePhotos(photos: any): string[] {
+    if (!photos) return [];
+
+    if (typeof photos === 'string') {
+      const trimmed = photos.trim();
+      if (!trimmed) return [];
+      if ((trimmed.startsWith('[') && trimmed.endsWith(']')) || (trimmed.startsWith('{') && trimmed.endsWith('}'))) {
+        try {
+          return this.normalizePhotos(JSON.parse(trimmed));
+        } catch {
+          return [trimmed];
+        }
+      }
+      return [trimmed];
+    }
+
+    if (Array.isArray(photos)) {
+      return photos
+        .map((entry: any) => this.resolvePhotoUrl(entry))
+        .filter((entry: any) => typeof entry === 'string' && entry.trim().length > 0);
+    }
+
+    const single = this.resolvePhotoUrl(photos);
+    return single ? [single] : [];
+  }
+
   async fetch(endpoint: string, options?: RequestInit & { requiresAuth?: boolean }) {
     try {
       const requiresAuth = options?.requiresAuth !== false;
@@ -303,6 +338,15 @@ class ApiService {
       console.log('🔍 [ApiService] URL completa:', `${API_URL}/vehicles/${id}`);
       const result = await this.fetch(`/vehicles/${id}`);
       console.log('✅ [ApiService] getVehicleById - Respuesta:', result);
+
+      if (result && typeof result === 'object') {
+        const normalizedImages = this.normalizePhotos((result as any).images ?? (result as any).fotos);
+        return {
+          ...(result as any),
+          images: normalizedImages,
+        } as Vehicle;
+      }
+
       return result;
     } catch (error: any) {
       console.error('❌ [ApiService] Error al obtener vehículo:', error);
@@ -738,7 +782,7 @@ class ApiService {
         const mapped = {
           ...pub.vehiculo,
           publicationId: pub.id,
-          images: pub.fotos?.map((f: any) => f.url) || [],
+          images: this.normalizePhotos(pub.fotos),
           price: pub.vehiculo?.valor || pub.valor,
           valor: pub.vehiculo?.valor || pub.valor,
           videoUrl: pub.videoUrl,
@@ -778,7 +822,7 @@ class ApiService {
       return (favorites || []).map((item: any) => ({
         ...item?.vehiculo ? item.vehiculo : item,
         publicationId: item.publicationId ?? item.id,
-        images: item.images ?? (item.fotos?.map((f: any) => f.url) || []),
+        images: this.normalizePhotos(item.images ?? item.fotos),
         valor: item.valor ?? item?.vehiculo?.valor,
         price: item.price ?? item?.vehiculo?.valor,
         videoUrl: item.videoUrl,
