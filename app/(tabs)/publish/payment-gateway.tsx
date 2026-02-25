@@ -477,9 +477,7 @@ export default function PaymentGatewayScreen() {
 
         let result;
         try {
-          // FIX: usar POST /payments/webpay/confirm (no confirmWebPayTransaction de apiService
-          // que podría estar apuntando a un endpoint diferente)
-          result = await apiService.post('/payments/webpay/confirm', { token_ws: tokenToConfirm });
+          result = await apiService.confirmWebPayTransaction(tokenToConfirm);
         } catch (confirmError: any) {
           if (confirmError?.message?.includes('422') || 
               confirmError?.message?.includes('already locked') || 
@@ -802,19 +800,46 @@ export default function PaymentGatewayScreen() {
         throw new Error('Usuario no autenticado');
       }
 
-      logPaymentEvent('Creating WebPay transaction', { userId: user.id, amount: amountNum });
+      logPaymentEvent('Creating payment record', { userId: user.id, amount: amountNum });
 
-      // FIX: el backend expone POST /payments/webpay/create
-      // NO crear el pago por separado — el backend lo crea internamente en webpay/create
+      // Limpiar fallback timer si existía
       if (callbackFallbackRef.current) {
         clearTimeout(callbackFallbackRef.current);
         callbackFallbackRef.current = null;
       }
 
+      // Paso 1: Crear registro de pago en el backend
+      const createdPayment = await executeWithRetry(
+        () => apiService.post('/payments', {
+          usuarioId: user.id,
+          monto: amountNum,
+          metodo: 'WebPay',
+        }),
+        'create_payment_record'
+      );
+
+      const paymentId = createdPayment?.id;
+      if (!paymentId) {
+        logPaymentEvent('Payment record creation failed', { response: createdPayment }, 'error');
+        throw new Error('No se pudo crear el registro de pago');
+      }
+
+      logPaymentEvent('Payment record created', { paymentId });
+
+      // Guardar paymentId para reconciliación
+      await AsyncStorage.setItem('waitingForPayment', paymentId);
+      await AsyncStorage.setItem(`payment_${paymentId}_timestamp`, Date.now().toString());
+      await AsyncStorage.setItem(`payment_${paymentId}_amount`, amountNum.toString());
+      await AsyncStorage.setItem(`payment_${paymentId}_serviceType`, 'webpay');
+
+      logPaymentEvent('Creating WebPay transaction', { paymentId });
+
+      // Paso 2: Crear transacción WebPay con Transbank
       const webpayData = await executeWithRetry(
-        () => apiService.post('/payments/webpay/create', {
+        () => apiService.createWebPayTransaction({
           amount: amountNum,
-          // returnUrl se construye en el backend usando APP_URL, no confiar en el cliente
+          returnUrl: `${API_URL}/payments/webpay/callback`,
+          paymentId,
         }),
         'create_webpay_transaction'
       );
@@ -830,40 +855,49 @@ export default function PaymentGatewayScreen() {
         throw new Error('No se recibió una URL válida de WebPay');
       }
 
-      // Guardar paymentId (ahora viene del backend) para reconciliación
-      // FIX: el backend de /payments/webpay/create ya crea el Payment y devuelve buyOrder
-      // Guardamos el token para poder confirmar manualmente si el callback falla
-      const paymentId = webpayData?.paymentId || webpayData?.buyOrder;
-      if (paymentId) {
-        await AsyncStorage.setItem('waitingForPayment', String(paymentId));
-        await AsyncStorage.setItem(`payment_${paymentId}_timestamp`, Date.now().toString());
-        await AsyncStorage.setItem(`payment_${paymentId}_amount`, amountNum.toString());
-        await AsyncStorage.setItem(`payment_${paymentId}_serviceType`, 'webpay');
-      }
-
       setIsWaitingForPayment(true);
 
+      // Guardar token de Transbank para reconciliación posterior
       if (webpayData.token) {
-        const storageKey = paymentId ? `payment_${paymentId}_token` : `payment_token_${Date.now()}`;
-        await AsyncStorage.setItem(storageKey, webpayData.token);
+        await AsyncStorage.setItem(`payment_${paymentId}_token`, webpayData.token);
       }
 
-      // FIX: el backend devuelve una URL propia (/payments/webpay/pay?token=...)
-      // que genera el formulario HTML POST hacia Transbank.
-      // El WebView puede navegar directamente a esa URL sin necesitar el autoSubmitHtml.
+      // Paso 3: Generar formulario HTML para auto-submit POST
+      // (Requerido por Transbank WebPay Plus - la URL debe recibir token_ws via POST)
       const originalUrl = webpayData.url as string;
       
       console.log('🔵 [WebPay] Limpiando estado loading antes de abrir WebView...');
       setLoading(false);
-      
+
+      const autoSubmitHtml = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Redirigiendo a WebPay...</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          </head>
+          <body onload="document.forms[0].submit()">
+            <div style="display: flex; justify-content: center; align-items: center; height: 100vh; flex-direction: column; font-family: sans-serif;">
+              <p>Redirigiendo a WebPay...</p>
+              <form action="${originalUrl}" method="POST">
+                <input type="hidden" name="token_ws" value="${webpayData.token}" />
+                <noscript>
+                  <input type="submit" value="Ir a pagar" />
+                </noscript>
+              </form>
+            </div>
+          </body>
+        </html>
+      `;
+
+      setWebviewHtml(autoSubmitHtml);
       setWebviewUrl(originalUrl);
-      setWebviewHtml(null); // No usar HTML manual — el backend genera el form HTML
       
       await new Promise(resolve => setTimeout(resolve, 100));
       
       setWebviewVisible(true);
       
-      console.log('🔵 [WebPay] WebView configurado con URL de backend. Visible:', true);
+      console.log('🔵 [WebPay] WebView configurado con POST form. Visible:', true);
       
       return;
     } catch (error: any) {
