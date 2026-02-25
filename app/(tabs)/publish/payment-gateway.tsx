@@ -286,7 +286,7 @@ export default function PaymentGatewayScreen() {
     for (let attempt = 1; attempt <= attempts; attempt++) {
       try {
         const paymentRecord = await apiService.get(`/payments/${paymentId}`);
-        if (paymentRecord?.estado === 'Completado') {
+        if (paymentRecord?.estado === 'COMPLETED') {
           return true;
         }
       } catch (error: any) {
@@ -485,7 +485,7 @@ export default function PaymentGatewayScreen() {
             logPaymentEvent('Transaction already processed, checking payment status', {}, 'warn');
             
             const paymentCheck = await apiService.get(`/payments/${savedPaymentId}`);
-            if (paymentCheck?.estado === 'Completado') {
+            if (paymentCheck?.estado === 'COMPLETED') {
               logPaymentEvent('Payment confirmed as completed', { paymentId: savedPaymentId });
               result = { success: true, status: 'AUTHORIZED', alreadyProcessed: true };
             } else {
@@ -503,9 +503,9 @@ export default function PaymentGatewayScreen() {
           fullResult: result
         });
 
-        const responseCode = result?.response_code ?? result?.transaction?.response_code;
-        const status = result?.status ?? result?.transaction?.status;
-        const hasOnlyTokenUrl = result?.token && result?.url && !responseCode && !status;
+        const responseCode = result?.response_code ?? null;
+        const status = result?.status ?? null;
+        const hasOnlyTokenUrl = result?.token && result?.url && responseCode === null && !status;
         
         console.log('🔍 Response analysis:', {
           hasResponseCode: !!responseCode,
@@ -586,7 +586,7 @@ export default function PaymentGatewayScreen() {
         if (savedPaymentId) {
           try {
             const paymentCheck = await apiService.get(`/payments/${savedPaymentId}`);
-            if (paymentCheck?.estado === 'Completado') {
+            if (paymentCheck?.estado === 'COMPLETED') {
               logPaymentEvent('Payment verified as completed after 422 error');
               setPaymentStatus('success');
               setIsWaitingForPayment(false);
@@ -612,7 +612,7 @@ export default function PaymentGatewayScreen() {
         if (savedPidForCheck) {
           try {
             const paymentCheck = await apiService.get(`/payments/${savedPidForCheck}`);
-            if (paymentCheck?.estado === 'Completado') {
+            if (paymentCheck?.estado === 'COMPLETED') {
               logPaymentEvent('Payment actually completed despite frontend error', { paymentId: savedPidForCheck });
               setPaymentStatus('success');
               setIsWaitingForPayment(false);
@@ -800,7 +800,7 @@ export default function PaymentGatewayScreen() {
         throw new Error('Usuario no autenticado');
       }
 
-      logPaymentEvent('Creating payment record', { userId: user.id, amount: amountNum });
+      logPaymentEvent('Creating WebPay transaction', { userId: user.id, amount: amountNum });
 
       // Limpiar fallback timer si existía
       if (callbackFallbackRef.current) {
@@ -808,41 +808,19 @@ export default function PaymentGatewayScreen() {
         callbackFallbackRef.current = null;
       }
 
-      // Paso 1: Crear registro de pago en el backend
-      const createdPayment = await executeWithRetry(
-        () => apiService.post('/payments', {
-          usuarioId: user.id,
-          monto: amountNum,
-          metodo: 'WebPay',
-        }),
-        'create_payment_record'
-      );
-
-      const paymentId = createdPayment?.id;
-      if (!paymentId) {
-        logPaymentEvent('Payment record creation failed', { response: createdPayment }, 'error');
-        throw new Error('No se pudo crear el registro de pago');
-      }
-
-      logPaymentEvent('Payment record created', { paymentId });
-
-      // Guardar paymentId para reconciliación
-      await AsyncStorage.setItem('waitingForPayment', paymentId);
-      await AsyncStorage.setItem(`payment_${paymentId}_timestamp`, Date.now().toString());
-      await AsyncStorage.setItem(`payment_${paymentId}_amount`, amountNum.toString());
-      await AsyncStorage.setItem(`payment_${paymentId}_serviceType`, 'webpay');
-
-      logPaymentEvent('Creating WebPay transaction', { paymentId });
-
-      // Paso 2: Crear transacción WebPay con Transbank
+      // Paso único: Crear transacción WebPay (el backend crea el Payment record internamente)
+      // No llamar a POST /payments por separado — el controller ya lo hace, evitando registros duplicados.
       const webpayData = await executeWithRetry(
         () => apiService.createWebPayTransaction({
           amount: amountNum,
           returnUrl: `${API_URL}/payments/webpay/callback`,
-          paymentId,
         }),
         'create_webpay_transaction'
       );
+
+      // El controller devuelve el pagoId creado internamente
+      const paymentId = webpayData?.pagoId || null;
+      logPaymentEvent('WebPay transaction created', { paymentId, hasUrl: !!webpayData?.url });
 
       logPaymentEvent('WebPay transaction created', { 
         hasUrl: !!webpayData?.url,
@@ -857,47 +835,33 @@ export default function PaymentGatewayScreen() {
 
       setIsWaitingForPayment(true);
 
-      // Guardar token de Transbank para reconciliación posterior
-      if (webpayData.token) {
+      // Guardar paymentId y token para reconciliación posterior
+      if (paymentId) {
+        await AsyncStorage.setItem('waitingForPayment', paymentId);
+        await AsyncStorage.setItem(`payment_${paymentId}_timestamp`, Date.now().toString());
+        await AsyncStorage.setItem(`payment_${paymentId}_amount`, amountNum.toString());
+        await AsyncStorage.setItem(`payment_${paymentId}_serviceType`, 'webpay');
+      }
+      if (webpayData.token && paymentId) {
         await AsyncStorage.setItem(`payment_${paymentId}_token`, webpayData.token);
       }
 
-      // Paso 3: Generar formulario HTML para auto-submit POST
-      // (Requerido por Transbank WebPay Plus - la URL debe recibir token_ws via POST)
-      const originalUrl = webpayData.url as string;
+      // Paso 3: Cargar la URL intermediaria del backend directamente.
+      // El endpoint /payments/webpay/pay?token= ya genera el form POST hacia Transbank,
+      // así que solo cargamos la URL — NO creamos un form POST encima de otro.
+      const redirectUrl = webpayData.url as string;
       
       console.log('🔵 [WebPay] Limpiando estado loading antes de abrir WebView...');
       setLoading(false);
 
-      const autoSubmitHtml = `
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <title>Redirigiendo a WebPay...</title>
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          </head>
-          <body onload="document.forms[0].submit()">
-            <div style="display: flex; justify-content: center; align-items: center; height: 100vh; flex-direction: column; font-family: sans-serif;">
-              <p>Redirigiendo a WebPay...</p>
-              <form action="${originalUrl}" method="POST">
-                <input type="hidden" name="token_ws" value="${webpayData.token}" />
-                <noscript>
-                  <input type="submit" value="Ir a pagar" />
-                </noscript>
-              </form>
-            </div>
-          </body>
-        </html>
-      `;
-
-      setWebviewHtml(autoSubmitHtml);
-      setWebviewUrl(originalUrl);
+      setWebviewHtml(null);
+      setWebviewUrl(redirectUrl);
       
       await new Promise(resolve => setTimeout(resolve, 100));
       
       setWebviewVisible(true);
       
-      console.log('🔵 [WebPay] WebView configurado con POST form. Visible:', true);
+      console.log('🔵 [WebPay] WebView configurado con URL directa. Visible:', true);
       
       return;
     } catch (error: any) {
@@ -939,7 +903,7 @@ export default function PaymentGatewayScreen() {
         // Si el usuario no es admin, esto fallará silenciosamente — está bien, es best-effort
         apiService.fetch(`/payments/${paymentId}/status`, {
             method: 'PATCH',
-            body: JSON.stringify({ estado: 'Fallido', detalles: reason || 'Anulado por el usuario' }),
+            body: JSON.stringify({ estado: 'FAILED', detalles: reason || 'Anulado por el usuario' }),
         }).catch(err => console.log('Error notifying backend of cancellation (non-critical):', err));
 
         await AsyncStorage.removeItem('waitingForPayment');
