@@ -31,6 +31,17 @@ export default function PaymentCallbackScreen() {
 
   const handleCallback = async () => {
     try {
+      const normalizeResponseCode = (code: any): number | null => {
+        if (code === undefined || code === null || code === '') return null;
+        const parsed = Number(code);
+        return Number.isNaN(parsed) ? null : parsed;
+      };
+
+      const isPaymentCompletedStatus = (estado: any): boolean => {
+        const normalized = typeof estado === 'string' ? estado.toUpperCase() : '';
+        return normalized === 'COMPLETADO' || normalized === 'COMPLETED' || normalized === 'AUTHORIZED' || normalized === 'PAGADO';
+      };
+
       const tokenWs = params.token_ws as string | undefined;
       const tbkToken = params.TBK_TOKEN as string | undefined;
       const callbackStatus = params.status as string | undefined;
@@ -87,14 +98,16 @@ export default function PaymentCallbackScreen() {
             const result = await walletService.confirmTransbankDeposit(tokenToUse, savedPaymentId || undefined);
             const resultStatus = result?.status || result?.data?.status;
             const responseCode = result?.response_code ?? result?.data?.response_code;
-            isAuthorized = result?.success === true || resultStatus === 'AUTHORIZED' || responseCode === 0;
+            const responseCodeNum = normalizeResponseCode(responseCode);
+            isAuthorized = result?.success === true || resultStatus === 'AUTHORIZED' || responseCodeNum === 0;
           } else {
             // Pago normal: usar endpoint de confirmación WebPay
             console.log('🔵 [PaymentCallback] Confirmando pago WebPay...');
             const result = await apiService.confirmWebPayTransaction(tokenToUse);
-            const responseCode = result?.response_code ?? result?.transaction?.response_code;
-            const resultStatus = result?.status ?? result?.transaction?.status;
-            isAuthorized = responseCode === 0 || resultStatus === 'AUTHORIZED';
+            const responseCode = result?.response_code ?? result?.transaction?.response_code ?? result?.data?.response_code;
+            const responseCodeNum = normalizeResponseCode(responseCode);
+            const resultStatus = result?.status ?? result?.transaction?.status ?? result?.data?.status;
+            isAuthorized = responseCodeNum === 0 || resultStatus === 'AUTHORIZED';
           }
 
           if (isAuthorized) {
@@ -109,7 +122,7 @@ export default function PaymentCallbackScreen() {
           if (e.message?.includes('422') || e.message?.includes('already locked') || e.message?.includes('processed')) {
             if (savedPaymentId) {
               const paymentCheck = await apiService.get(`/payments/${savedPaymentId}`);
-              if (paymentCheck?.estado === 'Completado') {
+              if (isPaymentCompletedStatus(paymentCheck?.estado)) {
                 setStatus('success');
                 setMessage(isWalletDeposit ? '¡Tu saldo ha sido actualizado!' : '¡Tu pago fue procesado correctamente!');
                 await cleanupPaymentStorage(savedPaymentId);
@@ -124,7 +137,7 @@ export default function PaymentCallbackScreen() {
       // Caso 3: Verificar directamente el estado del pago en el backend
       if (savedPaymentId) {
         const paymentCheck = await apiService.get(`/payments/${savedPaymentId}`);
-        if (paymentCheck?.estado === 'Completado') {
+        if (isPaymentCompletedStatus(paymentCheck?.estado)) {
           setStatus('success');
           setMessage(isWalletDeposit ? '¡Tu saldo ha sido actualizado!' : '¡Tu pago fue procesado correctamente!');
           await cleanupPaymentStorage(savedPaymentId);
