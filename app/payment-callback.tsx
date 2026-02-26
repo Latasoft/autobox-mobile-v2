@@ -85,6 +85,16 @@ export default function PaymentCallbackScreen() {
         return;
       }
 
+      // Caso 1b: El callback del backend ya confirmó exitosamente (wallet deposit return URL)
+      // Cuando el endpoint /wallet/public/deposit/transbank/return confirma OK, redirige con status=success
+      if (callbackStatus === 'success' && isWalletDeposit) {
+        console.log('✅ [PaymentCallback] Depósito de wallet ya confirmado por el backend');
+        setStatus('success');
+        setMessage('¡Tu saldo ha sido actualizado!');
+        await cleanupPaymentStorage(savedPaymentId);
+        return;
+      }
+
       // Caso 2: Pago exitoso o en verificación
       const tokenToUse = tokenWs || (savedPaymentId ? await AsyncStorage.getItem(`payment_${savedPaymentId}_token`) : null);
 

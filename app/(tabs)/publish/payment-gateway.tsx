@@ -277,8 +277,13 @@ export default function PaymentGatewayScreen() {
   // isWebPayCallbackUrl: detecta cuándo el WebView está llegando a la URL del
   // backend — en ese caso se deja pasar (return true) para que el backend
   // reciba el POST con token_ws y procese el commit.
+  // También deja pasar /webpay/pay (endpoint intermedio del backend que genera
+  // el form POST hacia Transbank), para no interceptarlo antes de tiempo.
   const isWebPayCallbackUrl = (url: string): boolean => {
-    return url.includes(WEBPAY_CALLBACK_PATH) && !url.startsWith('autobox://');
+    return (
+      (url.includes(WEBPAY_CALLBACK_PATH) || url.includes('/payments/webpay/pay')) &&
+      !url.startsWith('autobox://')
+    );
   };
 
   const normalizeResponseCode = (code: any): number | null => {
@@ -828,7 +833,17 @@ export default function PaymentGatewayScreen() {
       const extractWebpayFields = (payload: any) => {
         const resolvedUrl = payload?.url || payload?.response?.url || payload?.data?.url;
         const resolvedToken = payload?.token || payload?.response?.token || payload?.data?.token;
-        const resolvedPaymentId = payload?.pagoId || payload?.paymentId || payload?.buyOrder || payload?.payment?.id || payload?.data?.pagoId || payload?.data?.paymentId || payload?.data?.buyOrder || payload?.data?.payment?.id || null;
+        // El backend /webpay/create devuelve pagoId en el nivel raíz.
+        // buyOrder se excluye como fallback de ID porque es una cadena tipo "WP-..." que
+        // no corresponde a un UUID de Payment — usarlo causaría un GET /payments/WP-... inválido.
+        const resolvedPaymentId =
+          payload?.pagoId ||
+          payload?.paymentId ||
+          payload?.payment?.id ||
+          payload?.data?.pagoId ||
+          payload?.data?.paymentId ||
+          payload?.data?.payment?.id ||
+          null;
         return {
           resolvedUrl,
           resolvedToken,
@@ -862,7 +877,8 @@ export default function PaymentGatewayScreen() {
           () => apiService.post('/payments', {
             usuarioId: user.id,
             monto: amountNum,
-            metodo: 'WebPay',
+            metodo: 'WebPay', // Coincide con PaymentMethod.WEBPAY del backend
+            estado: 'Pendiente', // Coincide con PaymentStatus.PENDING del backend
           }),
           'create_payment_record'
         );
@@ -909,32 +925,56 @@ export default function PaymentGatewayScreen() {
         await AsyncStorage.setItem(`payment_${paymentId}_token`, resolvedToken);
       }
 
-      // Paso 3: usar POST form con token_ws (requerido por Transbank)
+      // Paso 3: Construir HTML de redirección según el tipo de URL recibida.
+      // - Si la URL es la URL intermedia del backend (/pay?token=...), navegar con GET directo.
+      //   El endpoint GET /webpay/pay ya tiene el token en el query string y genera el form POST
+      //   hacia Transbank por su cuenta.
+      // - Si la URL es directamente de Transbank (webpay3g*.transbank.cl), hacer form POST con token_ws.
       const redirectUrl = resolvedUrl as string;
-      
+      const isIntermediateBackendUrl = redirectUrl.includes('/payments/webpay/pay');
+
       console.log('🔵 [WebPay] Limpiando estado loading antes de abrir WebView...');
       setLoading(false);
 
-      const autoSubmitHtml = `
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <title>Redirigiendo a WebPay...</title>
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          </head>
-          <body onload="document.forms[0].submit()">
-            <div style="display: flex; justify-content: center; align-items: center; height: 100vh; flex-direction: column; font-family: sans-serif;">
-              <p>Redirigiendo a WebPay...</p>
-              <form action="${redirectUrl}" method="POST">
-                <input type="hidden" name="token_ws" value="${resolvedToken}" />
-                <noscript>
-                  <input type="submit" value="Ir a pagar" />
-                </noscript>
-              </form>
-            </div>
-          </body>
-        </html>
-      `;
+      let autoSubmitHtml: string;
+
+      if (isIntermediateBackendUrl) {
+        // El backend maneja el POST a Transbank — solo navegar al endpoint GET intermedio
+        autoSubmitHtml = `
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <title>Redirigiendo a WebPay...</title>
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            </head>
+            <body onload="window.location.href='${redirectUrl}'">
+              <div style="display:flex;justify-content:center;align-items:center;height:100vh;flex-direction:column;font-family:sans-serif;">
+                <p>Redirigiendo a WebPay...</p>
+              </div>
+            </body>
+          </html>
+        `;
+      } else {
+        // URL directa de Transbank — hacer form POST con token_ws (requerido por Transbank)
+        autoSubmitHtml = `
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <title>Redirigiendo a WebPay...</title>
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            </head>
+            <body onload="document.forms[0].submit()">
+              <div style="display:flex;justify-content:center;align-items:center;height:100vh;flex-direction:column;font-family:sans-serif;">
+                <p>Redirigiendo a WebPay...</p>
+                <form action="${redirectUrl}" method="POST">
+                  <input type="hidden" name="token_ws" value="${resolvedToken}" />
+                  <noscript><input type="submit" value="Ir a pagar" /></noscript>
+                </form>
+              </div>
+            </body>
+          </html>
+        `;
+      }
 
       setWebviewHtml(autoSubmitHtml);
       setWebviewUrl(redirectUrl);
