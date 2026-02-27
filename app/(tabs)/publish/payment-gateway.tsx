@@ -10,7 +10,7 @@ import apiService from '../../../services/apiService';
 import authService from '../../../services/authService';
 import walletService from '../../../services/walletService';
 import { useWallet } from '../../../hooks/useWallet';
-import {API_URL} from '../../../constants/Config';
+import { PAYMENT_API_URL } from '../../../constants/Config';
 
 // Configuración de reintentos
 const MAX_RETRIES = 2;
@@ -246,6 +246,11 @@ export default function PaymentGatewayScreen() {
   };
 
   const WEBPAY_CALLBACK_PATH = '/payments/webpay/callback';
+  const WEBPAY_CALLBACK_LEGACY_PATH = '/webpay/callback';
+  const WEBPAY_PAY_PATH = '/payments/webpay/pay';
+  const WEBPAY_PAY_LEGACY_PATH = '/webpay/pay';
+  const normalizedPaymentApiUrl = PAYMENT_API_URL.endsWith('/') ? PAYMENT_API_URL.slice(0, -1) : PAYMENT_API_URL;
+  const WEBPAY_RETURN_URL = `${normalizedPaymentApiUrl}${WEBPAY_CALLBACK_LEGACY_PATH}`;
 
   const extractWebPayTokensFromUrl = (url: string): { tokenWs?: string; tbkToken?: string } => {
     try {
@@ -281,7 +286,20 @@ export default function PaymentGatewayScreen() {
   // el form POST hacia Transbank), para no interceptarlo antes de tiempo.
   const isWebPayCallbackUrl = (url: string): boolean => {
     return (
-      (url.includes(WEBPAY_CALLBACK_PATH) || url.includes('/payments/webpay/pay')) &&
+      (
+        url.includes(WEBPAY_CALLBACK_PATH) ||
+        url.includes(WEBPAY_CALLBACK_LEGACY_PATH)
+      ) &&
+      !url.startsWith('autobox://')
+    );
+  };
+
+  const isWebPayIntermediateUrl = (url: string): boolean => {
+    return (
+      (
+        url.includes(WEBPAY_PAY_PATH) ||
+        url.includes(WEBPAY_PAY_LEGACY_PATH)
+      ) &&
       !url.startsWith('autobox://')
     );
   };
@@ -855,7 +873,7 @@ export default function PaymentGatewayScreen() {
         webpayData = await executeWithRetry(
           () => apiService.createWebPayTransaction({
             amount: amountNum,
-            returnUrl: `${API_URL}/payments/webpay/callback`,
+            returnUrl: WEBPAY_RETURN_URL,
           }),
           'create_webpay_transaction_primary'
         );
@@ -892,7 +910,7 @@ export default function PaymentGatewayScreen() {
         webpayData = await executeWithRetry(
           () => apiService.createWebPayTransaction({
             amount: amountNum,
-            returnUrl: `${API_URL}/payments/webpay/callback`,
+            returnUrl: WEBPAY_RETURN_URL,
             paymentId,
           }),
           'create_webpay_transaction_fallback'
@@ -931,7 +949,7 @@ export default function PaymentGatewayScreen() {
       //   hacia Transbank por su cuenta.
       // - Si la URL es directamente de Transbank (webpay3g*.transbank.cl), hacer form POST con token_ws.
       const redirectUrl = resolvedUrl as string;
-      const isIntermediateBackendUrl = redirectUrl.includes('/payments/webpay/pay');
+      const isIntermediateBackendUrl = redirectUrl.includes(WEBPAY_PAY_PATH) || redirectUrl.includes(WEBPAY_PAY_LEGACY_PATH);
 
       console.log('🔵 [WebPay] Limpiando estado loading antes de abrir WebView...');
       setLoading(false);
@@ -1462,6 +1480,11 @@ export default function PaymentGatewayScreen() {
 
                       if (isWebPayCallbackUrl(url)) {
                         console.log('🔵 [WebView] Callback URL detectada, permitiendo carga para que backend procese');
+                        return true;
+                      }
+
+                      if (isWebPayIntermediateUrl(url)) {
+                        console.log('🔵 [WebView] URL intermedia de backend detectada, permitiendo navegación');
                         return true;
                       }
                         
