@@ -1,4 +1,3 @@
-import { Platform } from 'react-native';
 import authService from './authService';
 import { API_URL } from '../constants/Config';
 

@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Alert } from 'react-native';
-// Asegúrate de importar PaymentStatus aquí
 import paymentService, { Payment, PaymentStatus } from '../services/paymentService';
 
 export function usePayments() {
@@ -26,9 +25,11 @@ export function usePayments() {
       const allPayments = allData || [];
       
       // 1. Calcular total histórico de pagos COMPLETADOS
+      // Usa la misma definición que isPaymentCompletedStatus en payment-gateway/callback:
+      // COMPLETADO, COMPLETED, AUTHORIZED y PAGADO son todos estados de pago exitoso.
       const confirmed = allPayments.filter(p => {
         const status = typeof p.estado === 'string' ? p.estado.toUpperCase() : '';
-        return status === 'COMPLETADO' || status === 'COMPLETED' || p.estado === PaymentStatus.COMPLETED;
+        return status === 'COMPLETADO' || status === 'COMPLETED' || status === 'AUTHORIZED' || status === 'PAGADO' || p.estado === PaymentStatus.COMPLETED;
       });
       
       const total = confirmed.reduce((sum, p) => sum + (Number(p.monto) || 0), 0);
