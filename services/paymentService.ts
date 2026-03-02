@@ -144,25 +144,6 @@ const paymentService = {
   },
 
   // ---------------------------------------------------------
-  // 2. WEBPAY
-  // ---------------------------------------------------------
-
-  /**
-   * Confirma una transacción WebPay usando el token.
-   * FIX: el backend expone POST /payments/webpay/confirm (no /payments/webpay/callback directo)
-   * El callback lo procesa el backend solo; el frontend confirma vía /webpay/confirm.
-   */
-  async confirmWebPayTransaction(token: string): Promise<any> {
-    try {
-      const response = await apiService.post('/payments/webpay/confirm', { token_ws: token });
-      return response;
-    } catch (error) {
-      console.error('Error confirmando transacción WebPay:', error);
-      throw error;
-    }
-  },
-
-  // ---------------------------------------------------------
   // 3. GESTIÓN DE PAGOS A MECÁNICOS
   // ---------------------------------------------------------
 

@@ -129,7 +129,7 @@ export default function PaymentCallbackScreen() {
           }
         } catch (e: any) {
           // Si ya fue procesado (422), verificar estado final
-          if (e.message?.includes('422') || e.message?.includes('already locked') || e.message?.includes('processed')) {
+          if (e.message?.includes('422') || e.message?.includes('already locked') || e.message?.includes('processed') || e.message?.includes('Invalid status')) {
             if (savedPaymentId) {
               const paymentCheck = await apiService.get(`/payments/${savedPaymentId}`);
               if (isPaymentCompletedStatus(paymentCheck?.estado)) {
