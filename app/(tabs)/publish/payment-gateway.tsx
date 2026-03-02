@@ -43,6 +43,7 @@ export default function PaymentGatewayScreen() {
   const [pollingAttempts, setPollingAttempts] = useState(0);
   const isCancelledRef = useRef(false);
   const lastHandledReturnUrlRef = useRef<string | null>(null);
+  const bankSuccessEvidenceRef = useRef(false);
   const callbackFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -117,6 +118,39 @@ export default function PaymentGatewayScreen() {
           await checkPendingPayment();
         } else {
           console.log('⏹️ [Polling] Máximo de intentos alcanzado');
+
+          if (bankSuccessEvidenceRef.current) {
+            console.log('✅ [Polling] Evidencia de éxito bancario detectada, finalizando flujo en frontend');
+            setReconciliationNeeded(false);
+            setIsWaitingForPayment(false);
+
+            const serviceTypeStr = Array.isArray(serviceType) ? serviceType[0] : serviceType;
+            if (serviceTypeStr === 'wallet_deposit') {
+              try {
+                await refreshWallet();
+              } catch (refreshError: any) {
+                console.warn('⚠️ [Polling] Error refrescando wallet tras éxito bancario:', refreshError?.message);
+              }
+              setPaymentStatus('success');
+              setLoading(false);
+              if (pollingInterval) clearInterval(pollingInterval);
+              return;
+            }
+
+            setLoading(true);
+            try {
+              await processSuccessfulPayment(undefined);
+            } catch (processError: any) {
+              console.warn('⚠️ [Polling] Error en finalización post-pago:', processError?.message);
+            } finally {
+              setPaymentStatus('success');
+              setLoading(false);
+            }
+
+            if (pollingInterval) clearInterval(pollingInterval);
+            return;
+          }
+
           setReconciliationNeeded(false);
           Alert.alert(
             'Verificación Pendiente',
@@ -354,6 +388,14 @@ export default function PaymentGatewayScreen() {
     }
 
     const { tokenWs, tbkToken } = extractWebPayTokensFromUrl(url);
+
+    if (tokenWs || deepLinkStatus === 'success') {
+      bankSuccessEvidenceRef.current = true;
+      logPaymentEvent('Bank success evidence captured from return URL', {
+        hasTokenWs: !!tokenWs,
+        deepLinkStatus,
+      });
+    }
 
     if (tbkToken || deepLinkStatus === 'rejected' || deepLinkStatus === 'error' || deepLinkStatus === 'aborted') {
       void markPaymentCancelled(undefined, 'Transacción anulada por WebPay o por el usuario en el banco');
@@ -689,6 +731,7 @@ export default function PaymentGatewayScreen() {
     setWebviewHtml(null);
     setWebviewUrl(null);
     lastHandledReturnUrlRef.current = null;
+    bankSuccessEvidenceRef.current = false;
     isCancelledRef.current = false;
     
     const amountNum = Number(amount);
@@ -1293,13 +1336,26 @@ export default function PaymentGatewayScreen() {
 
     if (paymentStatus === 'success') {
       const isWalletDeposit = (Array.isArray(serviceType) ? serviceType[0] : serviceType) === 'wallet_deposit';
+      const descriptionText = Array.isArray(description) ? description[0] : description;
+      const amountNumber = Number(amount) || 0;
       return (
         <View style={styles.centerContainer}>
           <Ionicons name="checkmark-circle" size={80} color="#4CAF50" />
-          <Text style={styles.successTitle}>{isWalletDeposit ? '¡Carga Exitosa!' : '¡Pago Exitoso!'}</Text>
+          <Text style={styles.successTitle}>{isWalletDeposit ? '¡Carga Exitosa!' : 'Pago completado exitosamente'}</Text>
           <Text style={styles.successText}>
              {isWalletDeposit ? 'Tu saldo ha sido actualizado.' : 'Tu transacción se completó correctamente.'}
           </Text>
+          <View style={styles.successSummaryCard}>
+            <View style={styles.successSummaryRow}>
+              <Text style={styles.successSummaryLabel}>Detalle</Text>
+              <Text style={styles.successSummaryValue}>{descriptionText || 'Pago de servicio'}</Text>
+            </View>
+            <View style={styles.successSummaryDivider} />
+            <View style={styles.successSummaryRow}>
+              <Text style={styles.successSummaryLabel}>Monto pagado</Text>
+              <Text style={styles.successSummaryAmount}>${amountNumber.toLocaleString('es-CL')}</Text>
+            </View>
+          </View>
           <Button
             title={isWalletDeposit ? "Volver a Billetera" : "Continuar"}
             onPress={() => {
@@ -1555,6 +1611,44 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     marginBottom: 32,
+  },
+  successSummaryCard: {
+    width: '100%',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+  },
+  successSummaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  successSummaryLabel: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+  successSummaryValue: {
+    flex: 1,
+    marginLeft: 12,
+    textAlign: 'right',
+    fontSize: 14,
+    color: '#333',
+    fontWeight: '600',
+  },
+  successSummaryDivider: {
+    height: 1,
+    backgroundColor: '#F0F0F0',
+    marginVertical: 10,
+  },
+  successSummaryAmount: {
+    fontSize: 16,
+    color: '#2E7D32',
+    fontWeight: '700',
   },
   homeButton: {
     width: '100%',

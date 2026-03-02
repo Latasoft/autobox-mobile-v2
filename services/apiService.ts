@@ -86,6 +86,17 @@ class ApiService {
 
       if (!response.ok) {
         if (response.status === 401 || response.status === 403) {
+          const isPaymentVerificationEndpoint =
+            endpoint.includes('/payments/webpay') ||
+            endpoint.includes('/wallet/public/deposit/transbank') ||
+            endpoint.match(/^\/payments\/[A-Za-z0-9-]+(\/status)?$/) !== null;
+
+          if (isPaymentVerificationEndpoint) {
+            console.warn(`⚠️ [API] ${response.status} en endpoint de pago (${endpoint}) - evitando logout automático para permitir reconciliación`);
+            const error = await response.json().catch(() => ({ message: `HTTP ${response.status}` }));
+            throw new Error(error.message || `HTTP ${response.status}`);
+          }
+
           console.error('🚪 [API] Session expired - logging out');
           // Importar router dinámicamente para evitar dependencias circulares
           const { router } = await import('expo-router');
