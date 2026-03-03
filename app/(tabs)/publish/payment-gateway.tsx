@@ -105,7 +105,7 @@ export default function PaymentGatewayScreen() {
     let pollingInterval: any = null;
     let localAttempts = 0;
     
-    if (reconciliationNeeded && paymentStatus === 'verifying' && !isConfirming) {
+    if (reconciliationNeeded && paymentStatus === 'verifying') {
       console.log('🔄 [Polling] Iniciando polling automático de verificación de pago');
       
       checkPendingPayment();
@@ -168,7 +168,7 @@ export default function PaymentGatewayScreen() {
         clearInterval(pollingInterval);
       }
     };
-  }, [reconciliationNeeded, paymentStatus, isConfirming]);
+  }, [reconciliationNeeded, paymentStatus]);
 
   const loadPrices = async () => {
     try {
@@ -447,6 +447,14 @@ export default function PaymentGatewayScreen() {
 
       if (!savedPaymentId && !(serviceTypeStr === 'wallet_deposit' && directToken)) {
         logPaymentEvent('No pending payment found', {}, 'warn');
+
+        if (bankSuccessEvidenceRef.current) {
+          logPaymentEvent('No pending payment ID but bank evidence exists - finishing as success', {}, 'warn');
+          setReconciliationNeeded(false);
+          setIsWaitingForPayment(false);
+          setPaymentStatus('success');
+        }
+
         setLoading(false);
         setIsConfirming(false);
         return;
@@ -647,7 +655,28 @@ export default function PaymentGatewayScreen() {
           setLoading(false);
         }
       } else {
-        logPaymentEvent('No pending payment response from backend - starting auto-polling', {}, 'warn');
+        logPaymentEvent('No pending payment response from backend', {
+          hasBankSuccessEvidence: bankSuccessEvidenceRef.current,
+          savedPaymentId,
+        }, 'warn');
+
+        if (bankSuccessEvidenceRef.current) {
+          logPaymentEvent('Finishing as success based on bank evidence while backend sync catches up', {}, 'warn');
+          setReconciliationNeeded(false);
+          setIsWaitingForPayment(false);
+
+          setLoading(true);
+          try {
+            await processSuccessfulPayment(undefined);
+          } catch (processError: any) {
+            logPaymentEvent('Error processing entities after bank-evidence success', { error: processError?.message }, 'warn');
+          } finally {
+            setPaymentStatus('success');
+            setLoading(false);
+          }
+          return;
+        }
+
         setReconciliationNeeded(true);
         setPollingAttempts(0);
         setPaymentStatus('verifying');
