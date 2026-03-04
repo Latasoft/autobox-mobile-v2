@@ -9,6 +9,7 @@ import { WebView } from 'react-native-webview';
 import apiService from '../../../services/apiService';
 import authService from '../../../services/authService';
 import walletService from '../../../services/walletService';
+import uploadService from '../../../services/uploadService';
 import { useWallet } from '../../../hooks/useWallet';
 import { PAYMENT_API_URL } from '../../../constants/Config';
 
@@ -1181,6 +1182,34 @@ export default function PaymentGatewayScreen() {
       if (!metadataStr) throw new Error('Metadata inválida');
 
       const vehicleData = JSON.parse(metadataStr);
+
+      // Fallback de seguridad: si quedan URIs locales, subirlas a Cloudinary antes de crear vehículo/publicación.
+      const imageArray = Array.isArray(vehicleData.images) ? vehicleData.images : [];
+      const localUris = imageArray.filter((uri: any) =>
+        typeof uri === 'string' && /^(file:|content:|ph:|assets-library:)/i.test(uri)
+      );
+
+      let finalImageUrls: string[] = imageArray.filter((uri: any) => typeof uri === 'string' && !!uri);
+
+      if (localUris.length > 0) {
+        logPaymentEvent('Uploading local publication images in fallback path', {
+          localCount: localUris.length,
+        });
+
+        const filesToUpload = localUris.map((uri: string, index: number) => ({
+          uri,
+          name: `vehicle_${Date.now()}_${index}.jpg`,
+          type: uploadService.getMimeType(uri),
+        }));
+
+        const uploadedFiles = await uploadService.uploadMultipleFiles(filesToUpload, 'vehicles');
+        const uploadedUrls = uploadedFiles.map(f => f.publicUrl);
+
+        const remoteUrls = finalImageUrls.filter((uri: string) => !/^(file:|content:|ph:|assets-library:)/i.test(uri));
+        finalImageUrls = [...remoteUrls, ...uploadedUrls];
+      }
+
+      vehicleData.images = finalImageUrls;
       console.log('Procesando pago exitoso para vehículo:', vehicleData.plate || vehicleData.patente);
 
       if (serviceTypeStr === 'inspection_only') {

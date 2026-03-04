@@ -223,9 +223,34 @@ export const useRawPublish = () => {
   const publish = async () => {
     setLoading(true);
     try {
+      // Asegurar que todas las imágenes sean públicas (Cloudinary) antes de ir a pagar.
+      // En raw-publish el ImageUploader puede entregar URIs locales (file://, content://, ph://).
+      const localUris = (formData.images || []).filter((uri) => {
+        if (typeof uri !== 'string') return false;
+        return /^(file:|content:|ph:|assets-library:)/i.test(uri);
+      });
+
+      let finalImages = [...(formData.images || [])];
+
+      if (localUris.length > 0) {
+        const filesToUpload = localUris.map((uri, index) => ({
+          uri,
+          name: `vehicle_${Date.now()}_${index}.jpg`,
+          type: uploadService.getMimeType(uri),
+        }));
+
+        const uploadedFiles = await uploadService.uploadMultipleFiles(filesToUpload, 'vehicles');
+        const uploadedUrls = uploadedFiles.map(f => f.publicUrl);
+
+        // Mantener cualquier URL ya remota y reemplazar solo las locales
+        const remoteUrls = finalImages.filter((uri) => typeof uri === 'string' && !/^(file:|content:|ph:|assets-library:)/i.test(uri));
+        finalImages = [...remoteUrls, ...uploadedUrls];
+      }
+
       // Prepare data
       const vehicleData = {
         ...formData,
+        images: finalImages,
         price: parseInt(formData.price.replace(/\D/g, '')),
         kilometers: parseInt(formData.kilometers.replace(/\D/g, '')),
         year: parseInt(formData.year),

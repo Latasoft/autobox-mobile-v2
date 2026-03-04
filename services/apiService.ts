@@ -181,7 +181,14 @@ class ApiService {
       if (offset !== undefined) params.push(`offset=${offset}`);
       if (params.length > 0) url += `?${params.join('&')}`;
 
-      return await this.fetch(url);
+      const result = await this.fetch(url);
+
+      if (!Array.isArray(result)) return [];
+
+      return result.map((vehicle: any) => ({
+        ...vehicle,
+        images: this.normalizePhotos(vehicle.images ?? vehicle.imagenes ?? vehicle.fotos),
+      }));
     } catch (error) {
       console.error('Error al obtener mis vehículos:', error);
       return [];
@@ -205,7 +212,14 @@ class ApiService {
 
       if (params.length > 0) url += `?${params.join('&')}`;
 
-      return await this.fetch(url);
+      const result = await this.fetch(url);
+
+      if (!Array.isArray(result)) return [];
+
+      return result.map((vehicle: any) => ({
+        ...vehicle,
+        images: this.normalizePhotos(vehicle.images ?? vehicle.imagenes ?? vehicle.fotos),
+      }));
     } catch (error) {
       console.error('Error al obtener vehículos:', error);
       return [];
@@ -351,7 +365,14 @@ class ApiService {
       console.log('✅ [ApiService] getVehicleById - Respuesta:', result);
 
       if (result && typeof result === 'object') {
-        const normalizedImages = this.normalizePhotos((result as any).images ?? (result as any).fotos);
+        const normalizedImages = this.normalizePhotos(
+          (result as any).images ??
+          (result as any).imagenes ??
+          (result as any).fotos ??
+          (result as any)?.vehiculo?.images ??
+          (result as any)?.vehiculo?.imagenes ??
+          (result as any)?.vehiculo?.fotos
+        );
         return {
           ...(result as any),
           images: normalizedImages,
@@ -793,7 +814,14 @@ class ApiService {
         const mapped = {
           ...pub.vehiculo,
           publicationId: pub.id,
-          images: this.normalizePhotos(pub.fotos),
+          images: this.normalizePhotos(
+            pub.fotos ??
+            pub.images ??
+            pub.imagenes ??
+            pub.vehiculo?.images ??
+            pub.vehiculo?.imagenes ??
+            pub.vehiculo?.fotos
+          ),
           price: pub.vehiculo?.valor || pub.valor,
           valor: pub.vehiculo?.valor || pub.valor,
           videoUrl: pub.videoUrl,
@@ -833,7 +861,14 @@ class ApiService {
       return (favorites || []).map((item: any) => ({
         ...item?.vehiculo ? item.vehiculo : item,
         publicationId: item.publicationId ?? item.id,
-        images: this.normalizePhotos(item.images ?? item.fotos),
+        images: this.normalizePhotos(
+          item.images ??
+          item.imagenes ??
+          item.fotos ??
+          item?.vehiculo?.images ??
+          item?.vehiculo?.imagenes ??
+          item?.vehiculo?.fotos
+        ),
         valor: item.valor ?? item?.vehiculo?.valor,
         price: item.price ?? item?.vehiculo?.valor,
         videoUrl: item.videoUrl,
