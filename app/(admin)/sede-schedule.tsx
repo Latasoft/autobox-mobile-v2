@@ -28,6 +28,7 @@ const DAYS = [
 
 export default function AdminSedeScheduleScreen() {
   const router = useRouter();
+  const { sedeId } = useLocalSearchParams<{ sedeId?: string }>();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -55,20 +56,25 @@ export default function AdminSedeScheduleScreen() {
     setTimeSlots(slots);
   };
 
-  const loadSedes = async () => {
+  const loadSedes = useCallback(async () => {
     try {
       const data = await adminService.getSedes();
       setSedes(data);
       if (data.length > 0 && !selectedSedeId) {
-        setSelectedSedeId(String(data[0].id));
+        const hasRouteSede = sedeId ? data.some((item) => String(item.id) === String(sedeId)) : false;
+        if (hasRouteSede) {
+          setSelectedSedeId(String(sedeId));
+        } else {
+          setSelectedSedeId(String(data[0].id));
+        }
       }
     } catch (error) {
       console.error('Error loading sedes:', error);
       Alert.alert('Error', 'No se pudieron cargar las sedes');
     }
-  };
+  }, [selectedSedeId, sedeId]);
 
-  const loadSchedule = async () => {
+  const loadSchedule = useCallback(async () => {
     if (!selectedSedeId) return;
     try {
       const data = await adminService.getSedeSchedule(Number(selectedSedeId));
@@ -92,20 +98,20 @@ export default function AdminSedeScheduleScreen() {
       console.error('Error loading schedule:', error);
       Alert.alert('Error', 'No se pudo cargar el horario');
     }
-  };
+  }, [selectedSedeId]);
 
-  const init = async () => {
+  const init = useCallback(async () => {
     setLoading(true);
     initializeSchedule();
     loadTimeSlots();
     await loadSedes();
     setLoading(false);
-  };
+  }, [loadSedes]);
 
   useFocusEffect(
     useCallback(() => {
       init();
-    }, [])
+    }, [init])
   );
 
   // Cargar horario cuando cambia la sede seleccionada
@@ -114,7 +120,7 @@ export default function AdminSedeScheduleScreen() {
       if (selectedSedeId) {
         loadSchedule();
       }
-    }, [selectedSedeId])
+    }, [selectedSedeId, loadSchedule])
   );
 
   const handleSedeChange = (value: string) => {

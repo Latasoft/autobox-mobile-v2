@@ -548,6 +548,22 @@ class AdminService {
     }
   }
 
+  async getSedeById(sedeId: number): Promise<Sede> {
+    try {
+      const headers = await this.getHeaders();
+      const response = await fetch(`${API_URL}/admin/sedes/${sedeId}`, {
+        headers,
+      });
+      if (!response.ok) {
+        throw new Error('Error al obtener sede');
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('Error getSedeById:', error);
+      throw error;
+    }
+  }
+
   /**
    * createSede - Crea una nueva sede en el sistema.
    * @param data - Objeto con los datos de la sede a crear:
@@ -556,7 +572,7 @@ class AdminService {
    * Retorna el objeto Sede creado con su id asignado por el backend.
    * Llama a POST /admin/sedes con el body JSON y headers de autenticación.
    */
-  async createSede(data: { nombre: string; direccion: string }): Promise<Sede> {
+  async createSede(data: { nombre: string; direccion: string; activo?: boolean | number }): Promise<Sede> {
     try {
       const headers = await this.getHeaders();
       const response = await fetch(`${API_URL}/admin/sedes`, {
