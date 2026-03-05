@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -114,14 +114,16 @@ export default function AdminSedeScheduleScreen() {
     }, [init])
   );
 
-  // Cargar horario cuando cambia la sede seleccionada
-  useFocusEffect(
-    useCallback(() => {
-      if (selectedSedeId) {
-        loadSchedule();
-      }
-    }, [selectedSedeId, loadSchedule])
-  );
+  // Load schedule whenever the selected sede changes.
+  // useEffect (not useFocusEffect) is required here because useFocusEffect only
+  // re-runs on screen focus, not when React state changes. Since selectedSedeId
+  // is set asynchronously inside loadSedes(), a plain useEffect correctly reacts
+  // to that state update and triggers the schedule fetch.
+  useEffect(() => {
+    if (selectedSedeId) {
+      loadSchedule();
+    }
+  }, [selectedSedeId, loadSchedule]);
 
   const handleSedeChange = (value: string) => {
     setSelectedSedeId(value);
@@ -206,7 +208,11 @@ export default function AdminSedeScheduleScreen() {
     return (
       <Screen style={styles.container}>
         <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#333" />
+          </TouchableOpacity>
           <Text style={styles.title}>Horario de Atención</Text>
+          <View style={styles.backButton} />
         </View>
         <View style={styles.emptyContainer}>
           <Ionicons name="business-outline" size={48} color="#999" />
@@ -220,7 +226,11 @@ export default function AdminSedeScheduleScreen() {
   return (
     <Screen style={styles.container}>
       <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={24} color="#333" />
+        </TouchableOpacity>
         <Text style={styles.title}>Horario de Atención</Text>
+        <View style={styles.backButton} />
       </View>
 
       <View style={styles.sedeSelector}>
@@ -316,6 +326,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF',
     borderBottomWidth: 1,
     borderBottomColor: '#EEEEEE',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  backButton: {
+    width: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   title: {
     fontSize: 20,

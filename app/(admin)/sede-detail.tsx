@@ -147,7 +147,13 @@ export default function SedeDetailScreen() {
           onPress: async () => {
             try {
               setSaving(true);
-              await adminService.updateSede(sede.id, { activo: nextActive });
+              // UpdateSedeDto requires nombre and direccion (@IsNotEmpty), so we
+              // must always include the current values alongside the toggled activo.
+              await adminService.updateSede(sede.id, {
+                nombre: nombre.trim() || sede.nombre,
+                direccion: direccion.trim() || sede.direccion,
+                activo: nextActive,
+              });
               Alert.alert('Exito', `Sede ${nextActive ? 'activada' : 'desactivada'} correctamente`);
               await loadSede();
             } catch (error: any) {

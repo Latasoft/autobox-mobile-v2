@@ -535,7 +535,9 @@ class AdminService {
   async getSedes(): Promise<Sede[]> {
     try {
       const headers = await this.getHeaders();
-      const response = await fetch(`${API_URL}/admin/sedes`, {
+      // includeInactive=true ensures both active and inactive sedes are returned,
+      // allowing the frontend filters (Activas / Inactivas / Todas) to work correctly.
+      const response = await fetch(`${API_URL}/admin/sedes?includeInactive=true`, {
         headers,
       });
       if (!response.ok) {
@@ -572,7 +574,7 @@ class AdminService {
    * Retorna el objeto Sede creado con su id asignado por el backend.
    * Llama a POST /admin/sedes con el body JSON y headers de autenticación.
    */
-  async createSede(data: { nombre: string; direccion: string; activo: boolean | number }): Promise<Sede> {
+  async createSede(data: { nombre: string; direccion: string; activo: boolean }): Promise<Sede> {
     try {
       const headers = await this.getHeaders();
       const response = await fetch(`${API_URL}/admin/sedes`, {
@@ -599,9 +601,9 @@ class AdminService {
    *   - direccion? (string): Nueva dirección
    *   - activo? (boolean): Estado activo/inactivo de la sede
    * Retorna el objeto Sede actualizado.
-   * Llama a PATCH /admin/sedes/:id con el body JSON y headers de autenticación.
+   * Llama a PUT /admin/sedes/:id con el body JSON y headers de autenticación.
    */
-  async updateSede(sedeId: number, data: Partial<Sede>): Promise<Sede> {
+  async updateSede(sedeId: number, data: { nombre: string; direccion: string; activo: boolean }): Promise<Sede> {
     try {
       const headers = await this.getHeaders();
       const response = await fetch(`${API_URL}/admin/sedes/${sedeId}`, {
@@ -610,7 +612,8 @@ class AdminService {
         body: JSON.stringify(data),
       });
       if (!response.ok) {
-        throw new Error('Error al actualizar sede');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Error al actualizar sede');
       }
       return await response.json();
     } catch (error) {
@@ -633,7 +636,10 @@ class AdminService {
         headers,
       });
       if (!response.ok) {
-        throw new Error('Error al eliminar sede');
+        // Extract the descriptive message from the backend (e.g., ConflictException
+        // when the sede has associated inspections that prevent deletion).
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Error al eliminar sede');
       }
     } catch (error) {
       console.error('Error deleteSede:', error);
