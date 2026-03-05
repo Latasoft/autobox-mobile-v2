@@ -572,7 +572,7 @@ class AdminService {
    * Retorna el objeto Sede creado con su id asignado por el backend.
    * Llama a POST /admin/sedes con el body JSON y headers de autenticación.
    */
-  async createSede(data: { nombre: string; direccion: string; activo?: boolean | number }): Promise<Sede> {
+  async createSede(data: { nombre: string; direccion: string; activo: boolean | number }): Promise<Sede> {
     try {
       const headers = await this.getHeaders();
       const response = await fetch(`${API_URL}/admin/sedes`, {

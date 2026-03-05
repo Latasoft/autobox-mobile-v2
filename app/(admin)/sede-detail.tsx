@@ -5,7 +5,6 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
-  Switch,
   TouchableOpacity,
   ScrollView,
 } from 'react-native';
@@ -27,6 +26,11 @@ export default function SedeDetailScreen() {
   const [nombre, setNombre] = useState('');
   const [direccion, setDireccion] = useState('');
   const [activo, setActivo] = useState(true);
+
+  const isSedeActive = (value?: boolean | number) => {
+    if (typeof value === 'number') return value === 1;
+    return Boolean(value);
+  };
 
   const loadSede = useCallback(async () => {
     if (!id) {
@@ -55,7 +59,7 @@ export default function SedeDetailScreen() {
       setSede(data);
       setNombre(data.nombre || '');
       setDireccion(data.direccion || '');
-      setActivo(Boolean(data.activo));
+      setActivo(isSedeActive(data.activo));
     } catch (error) {
       console.error('Error loading sede:', error);
       Alert.alert('Error', 'No se pudo cargar la sede');
@@ -75,8 +79,8 @@ export default function SedeDetailScreen() {
     const nombreTrim = nombre.trim();
     const direccionTrim = direccion.trim();
 
-    if (!nombreTrim || !direccionTrim) {
-      Alert.alert('Campos requeridos', 'Debes completar nombre y direccion');
+    if (!nombreTrim || !direccionTrim || typeof activo !== 'boolean') {
+      Alert.alert('Campos requeridos', 'Debes completar todos los campos de la sede');
       return;
     }
 
@@ -102,7 +106,7 @@ export default function SedeDetailScreen() {
 
     Alert.alert(
       'Eliminar sede',
-      `¿Seguro que deseas eliminar la sede ${sede.nombre}? Esta accion no se puede deshacer.`,
+      `¿Seguro que deseas eliminar de forma definitiva la sede ${sede.nombre}? Esta accion no se puede deshacer y borrara sus datos.`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -118,6 +122,37 @@ export default function SedeDetailScreen() {
             } catch (error: any) {
               console.error('Error deleting sede:', error);
               Alert.alert('Error', error?.message || 'No se pudo eliminar la sede');
+            } finally {
+              setSaving(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleToggleActive = async () => {
+    if (!sede) return;
+
+    const nextActive = !activo;
+    const actionLabel = nextActive ? 'activar' : 'desactivar';
+
+    Alert.alert(
+      `${nextActive ? 'Activar' : 'Desactivar'} sede`,
+      `¿Seguro que deseas ${actionLabel} la sede ${sede.nombre}?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: nextActive ? 'Activar' : 'Desactivar',
+          onPress: async () => {
+            try {
+              setSaving(true);
+              await adminService.updateSede(sede.id, { activo: nextActive });
+              Alert.alert('Exito', `Sede ${nextActive ? 'activada' : 'desactivada'} correctamente`);
+              await loadSede();
+            } catch (error: any) {
+              console.error('Error toggling sede status:', error);
+              Alert.alert('Error', error?.message || `No se pudo ${actionLabel} la sede`);
             } finally {
               setSaving(false);
             }
@@ -160,7 +195,10 @@ export default function SedeDetailScreen() {
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Datos de la sede</Text>
+          <View style={styles.nameRow}>
+            <View style={[styles.statusDot, activo ? styles.dotActive : styles.dotInactive]} />
+            <Text style={styles.sectionTitle}>{nombre || 'Datos de la sede'}</Text>
+          </View>
 
           <Input
             label="ID"
@@ -184,22 +222,18 @@ export default function SedeDetailScreen() {
             placeholder="Direccion de la sede"
           />
 
-          <View style={styles.switchRow}>
-            <Text style={styles.switchLabel}>Activa</Text>
-            <Switch
-              value={activo}
-              onValueChange={setActivo}
-              disabled={saving}
-              trackColor={{ false: '#D1D5DB', true: '#93C5FD' }}
-              thumbColor={activo ? '#007bff' : '#9CA3AF'}
-            />
+          <View style={styles.stateRow}>
+            <Text style={styles.stateLabel}>Estado</Text>
+            <Text style={[styles.stateValue, activo ? styles.stateActive : styles.stateInactive]}>
+              {activo ? 'Activa' : 'Desactivada'}
+            </Text>
           </View>
         </View>
 
         <View style={styles.actionsCard}>
           <Text style={styles.sectionTitle}>Acciones</Text>
           <Button
-            title={saving ? 'Guardando...' : 'Guardar Cambios'}
+            title={saving ? 'Actualizando...' : 'Actualizar Sede'}
             onPress={handleSave}
             loading={saving}
             disabled={saving}
@@ -207,7 +241,15 @@ export default function SedeDetailScreen() {
           />
 
           <Button
-            title="Ver Horario de esta Sede"
+            title={activo ? 'Desactivar Sede' : 'Activar Sede'}
+            onPress={handleToggleActive}
+            style={[styles.actionSpacing, styles.orangeButton]}
+            textStyle={styles.orangeButtonText}
+            disabled={saving}
+          />
+
+          <Button
+            title="Ver Horario Sede"
             onPress={handleGoToSchedule}
             variant="secondary"
             style={styles.actionSpacing}
@@ -284,20 +326,52 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     color: '#333',
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     marginBottom: 16,
   },
-  switchRow: {
-    marginTop: 4,
+  statusDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 99,
+  },
+  dotActive: {
+    backgroundColor: '#22C55E',
+  },
+  dotInactive: {
+    backgroundColor: '#F59E0B',
+  },
+  stateRow: {
+    marginTop: 2,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  switchLabel: {
+  stateLabel: {
     fontSize: 15,
     fontWeight: '600',
     color: '#374151',
   },
+  stateValue: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  stateActive: {
+    color: '#22C55E',
+  },
+  stateInactive: {
+    color: '#F59E0B',
+  },
   actionSpacing: {
     marginBottom: 12,
+  },
+  orangeButton: {
+    backgroundColor: '#F59E0B',
+  },
+  orangeButtonText: {
+    color: '#FFF',
   },
 });

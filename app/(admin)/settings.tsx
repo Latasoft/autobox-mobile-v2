@@ -83,12 +83,6 @@ export default function SettingsScreen() {
         <ScrollView contentContainerStyle={styles.content}>
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Horarios de Atención</Text>
-            <Button
-              title="Gestionar Sedes"
-              onPress={() => router.push('/(admin)/sedes')}
-              variant="outline"
-              style={{ marginBottom: 10 }}
-            />
             <Button 
               title="Gestionar Horario de Sede"
               onPress={() => router.push('/(admin)/sede-schedule')}

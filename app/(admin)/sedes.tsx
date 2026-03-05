@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Modal,
   Switch,
   RefreshControl,
+  TextInput,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -31,6 +32,14 @@ export default function AdminSedesScreen() {
   const [nombre, setNombre] = useState('');
   const [direccion, setDireccion] = useState('');
   const [activo, setActivo] = useState(true);
+  const [search, setSearch] = useState('');
+  const [estadoFilter, setEstadoFilter] = useState<'todos' | 'activas' | 'inactivas'>('todos');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+
+  const isSedeActive = (value?: boolean | number) => {
+    if (typeof value === 'number') return value === 1;
+    return Boolean(value);
+  };
 
   const loadSedes = async () => {
     try {
@@ -74,8 +83,8 @@ export default function AdminSedesScreen() {
     const nombreTrim = nombre.trim();
     const direccionTrim = direccion.trim();
 
-    if (!nombreTrim || !direccionTrim) {
-      Alert.alert('Campos requeridos', 'Debes completar nombre y direccion');
+    if (!nombreTrim || !direccionTrim || typeof activo !== 'boolean') {
+      Alert.alert('Campos requeridos', 'Debes completar todos los campos de la sede');
       return;
     }
 
@@ -104,8 +113,31 @@ export default function AdminSedesScreen() {
     });
   };
 
+  const filteredSedes = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    const filtered = sedes.filter((item) => {
+      const active = isSedeActive(item.activo);
+      if (estadoFilter === 'activas' && !active) return false;
+      if (estadoFilter === 'inactivas' && active) return false;
+
+      if (query) {
+        const nombreMatch = (item.nombre || '').toLowerCase().includes(query);
+        const direccionMatch = (item.direccion || '').toLowerCase().includes(query);
+        const idMatch = String(item.id || '').includes(query);
+        if (!nombreMatch && !direccionMatch && !idMatch) return false;
+      }
+
+      return true;
+    });
+
+    return filtered.sort((a, b) => {
+      if (sortOrder === 'asc') return a.id - b.id;
+      return b.id - a.id;
+    });
+  }, [sedes, search, estadoFilter, sortOrder]);
+
   const renderSede = ({ item }: { item: Sede }) => {
-    const isActive = Boolean(item.activo);
+    const isActive = isSedeActive(item.activo);
 
     return (
       <TouchableOpacity
@@ -114,16 +146,24 @@ export default function AdminSedesScreen() {
         activeOpacity={0.85}
       >
         <View style={styles.cardTopRow}>
-          <Text style={styles.cardTitle} numberOfLines={1}>{item.nombre}</Text>
-          <View style={[styles.statusBadge, isActive ? styles.statusActive : styles.statusInactive]}>
-            <Text style={styles.statusText}>{isActive ? 'Activa' : 'Inactiva'}</Text>
+          <View style={styles.nameRow}>
+            <View style={[styles.statusDot, isActive ? styles.dotActive : styles.dotInactive]} />
+            <Text style={styles.cardTitle} numberOfLines={1}>{item.nombre}</Text>
           </View>
+          <Text style={styles.idText}>ID: {item.id}</Text>
         </View>
 
         <Text style={styles.cardAddress} numberOfLines={2}>{item.direccion}</Text>
 
         <View style={styles.cardBottomRow}>
-          <Text style={styles.idText}>ID: {item.id}</Text>
+          <TouchableOpacity
+            style={styles.detailCta}
+            onPress={() => handleSedePress(item)}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="search" size={14} color="#2563EB" />
+            <Text style={styles.detailCtaText}>Ver detalle</Text>
+          </TouchableOpacity>
           <Ionicons name="chevron-forward" size={18} color="#999" />
         </View>
       </TouchableOpacity>
@@ -142,22 +182,79 @@ export default function AdminSedesScreen() {
         />
       </View>
 
+      <View style={styles.searchContainer}>
+        <View style={styles.searchBox}>
+          <Ionicons name="search-outline" size={18} color="#999" style={{ marginRight: 8 }} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Buscar sede por nombre, direccion o ID"
+            placeholderTextColor="#B0B0B0"
+            value={search}
+            onChangeText={setSearch}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          {search.length > 0 ? (
+            <TouchableOpacity onPress={() => setSearch('')}>
+              <Ionicons name="close-circle" size={18} color="#bbb" />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+
+        <View style={styles.filtersRow}>
+          <TouchableOpacity
+            style={[styles.filterChip, estadoFilter === 'todos' && styles.filterChipActive]}
+            onPress={() => setEstadoFilter('todos')}
+          >
+            <Text style={[styles.filterChipText, estadoFilter === 'todos' && styles.filterChipTextActive]}>Todas</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.filterChip, estadoFilter === 'activas' && styles.filterChipActive]}
+            onPress={() => setEstadoFilter('activas')}
+          >
+            <Text style={[styles.filterChipText, estadoFilter === 'activas' && styles.filterChipTextActive]}>Activas</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.filterChip, estadoFilter === 'inactivas' && styles.filterChipActive]}
+            onPress={() => setEstadoFilter('inactivas')}
+          >
+            <Text style={[styles.filterChipText, estadoFilter === 'inactivas' && styles.filterChipTextActive]}>Inactivas</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.sortRow}>
+          <Text style={styles.sortLabel}>Numero de sede:</Text>
+          <TouchableOpacity
+            style={[styles.sortButton, sortOrder === 'asc' && styles.sortButtonActive]}
+            onPress={() => setSortOrder('asc')}
+          >
+            <Text style={[styles.sortButtonText, sortOrder === 'asc' && styles.sortButtonTextActive]}>Asc</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.sortButton, sortOrder === 'desc' && styles.sortButtonActive]}
+            onPress={() => setSortOrder('desc')}
+          >
+            <Text style={[styles.sortButtonText, sortOrder === 'desc' && styles.sortButtonTextActive]}>Desc</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
       {loading && !refreshing ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color="#007bff" />
         </View>
       ) : (
         <FlatList
-          data={sedes}
+          data={filteredSedes}
           keyExtractor={(item) => String(item.id)}
           renderItem={renderSede}
-          contentContainerStyle={[styles.listContent, sedes.length === 0 && { flex: 1 }]}
+          contentContainerStyle={[styles.listContent, filteredSedes.length === 0 && { flex: 1 }]}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
           ListEmptyComponent={
             <View style={styles.center}>
               <Ionicons name="business-outline" size={56} color="#d0d0d0" />
-              <Text style={styles.emptyTitle}>Sin sedes</Text>
-              <Text style={styles.emptyText}>Crea una sede para comenzar</Text>
+              <Text style={styles.emptyTitle}>Sin resultados</Text>
+              <Text style={styles.emptyText}>No hay sedes para los filtros seleccionados</Text>
             </View>
           }
         />
@@ -239,6 +336,85 @@ const styles = StyleSheet.create({
   listContent: {
     padding: 16,
   },
+  searchContainer: {
+    backgroundColor: '#FFF',
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEEEEE',
+  },
+  searchBox: {
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 10,
+  },
+  searchInput: {
+    flex: 1,
+    minHeight: 42,
+    color: '#333',
+    fontSize: 15,
+  },
+  filtersRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  filterChip: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: '#FFF',
+  },
+  filterChipActive: {
+    backgroundColor: '#007bff',
+    borderColor: '#007bff',
+  },
+  filterChipText: {
+    color: '#374151',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  filterChipTextActive: {
+    color: '#FFF',
+  },
+  sortRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  sortLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '600',
+  },
+  sortButton: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: '#FFF',
+  },
+  sortButtonActive: {
+    backgroundColor: '#111827',
+    borderColor: '#111827',
+  },
+  sortButtonText: {
+    fontSize: 12,
+    color: '#374151',
+    fontWeight: '600',
+  },
+  sortButtonTextActive: {
+    color: '#FFF',
+  },
   card: {
     backgroundColor: '#FFF',
     borderRadius: 12,
@@ -252,6 +428,23 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: 8,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 8,
+  },
+  statusDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 99,
+  },
+  dotActive: {
+    backgroundColor: '#22C55E',
+  },
+  dotInactive: {
+    backgroundColor: '#F59E0B',
   },
   cardTitle: {
     flex: 1,
@@ -275,21 +468,15 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
     fontWeight: '600',
   },
-  statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
+  detailCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
-  statusActive: {
-    backgroundColor: '#DCFCE7',
-  },
-  statusInactive: {
-    backgroundColor: '#FEE2E2',
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#374151',
+  detailCtaText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#2563EB',
   },
   center: {
     flex: 1,
