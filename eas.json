@@ -13,9 +13,9 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://backend-kg0o.onrender.com",
-        "EXPO_PUBLIC_PAYMENT_URL": "https://payment-uby0.onrender.com",
-        "EXPO_PUBLIC_SOCKET_URL": "https://websocket-ufng.onrender.com",
+        "EXPO_PUBLIC_API_URL": "https://backend-8f9s.onrender.com",
+        "EXPO_PUBLIC_PAYMENT_URL": "https://autobox-payment.onrender.com",
+        "EXPO_PUBLIC_SOCKET_URL": "https://autobox-websocket.onrender.com",
         "CLOUDINARY_CLOUD_NAME": "dsfe9cylb",
         "CLOUDINARY_API_KEY": "784571256219358",
         "CLOUDINARY_API_SECRET": "v0TLv-3UoWr3MKMJxcpQZuqBgxY"
@@ -23,9 +23,9 @@
     },
     "production": {
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://backend-kg0o.onrender.com",
-        "EXPO_PUBLIC_PAYMENT_URL": "https://payment-uby0.onrender.com",
-        "EXPO_PUBLIC_SOCKET_URL": "https://websocket-ufng.onrender.com",
+        "EXPO_PUBLIC_API_URL": "https://backend-8f9s.onrender.com",
+        "EXPO_PUBLIC_PAYMENT_URL": "https://autobox-payment.onrender.com",
+        "EXPO_PUBLIC_SOCKET_URL": "https://autobox-websocket.onrender.com",
         "CLOUDINARY_CLOUD_NAME": "dsfe9cylb",
         "CLOUDINARY_API_KEY": "784571256219358",
         "CLOUDINARY_API_SECRET": "v0TLv-3UoWr3MKMJxcpQZuqBgxY"
