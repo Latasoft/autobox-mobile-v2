@@ -72,7 +72,10 @@ export function useVehicleDetail() {
   };
 
   const deactivateVehicle = async () => {
-    if (!vehicle?.publicationId) return;
+    if (!vehicle?.publicationId) {
+      Alert.alert('No se pudo desactivar', 'La publicación no tiene un ID válido para desactivar.');
+      return;
+    }
     
     Alert.alert(
       'Desactivar Publicación',
@@ -98,6 +101,36 @@ export function useVehicleDetail() {
     );
   };
 
+  const deleteVehiclePublication = async (onDeleted?: () => void) => {
+    if (!vehicle?.publicationId) {
+      Alert.alert('No se pudo eliminar', 'La publicación no tiene un ID válido para eliminar.');
+      return;
+    }
+
+    Alert.alert(
+      'Eliminar Publicación',
+      '¿Estás seguro que deseas eliminar esta publicación de forma definitiva? Esta acción no se puede deshacer.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await apiService.deletePublication(vehicle.publicationId!);
+              Alert.alert('Éxito', 'Publicación eliminada correctamente', [
+                { text: 'OK', onPress: () => onDeleted?.() }
+              ]);
+            } catch (error: any) {
+              const errorMessage = error.message || 'No se pudo eliminar la publicación';
+              Alert.alert('No se pudo eliminar', errorMessage);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const isOwner = !!(currentUser && vehicle && currentUser.id === vehicle.userId);
 
   const refresh = useCallback(() => {
@@ -113,6 +146,7 @@ export function useVehicleDetail() {
     isOwner,
     toggleLike,
     deactivateVehicle,
+    deleteVehiclePublication,
     refresh,
   };
 }

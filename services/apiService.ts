@@ -365,6 +365,18 @@ class ApiService {
       console.log('✅ [ApiService] getVehicleById - Respuesta:', result);
 
       if (result && typeof result === 'object') {
+        const publicationId =
+          (result as any).publicationId ??
+          (result as any).publicacionId ??
+          (result as any)?.publication?.id ??
+          (result as any)?.publicacion?.id;
+
+        const publicationStatus =
+          (result as any).estado ??
+          (result as any).status ??
+          (result as any)?.publication?.estado ??
+          (result as any)?.publicacion?.estado;
+
         const normalizedImages = this.normalizePhotos(
           (result as any).images ??
           (result as any).imagenes ??
@@ -376,6 +388,9 @@ class ApiService {
         return {
           ...(result as any),
           images: normalizedImages,
+          publicationId,
+          estado: publicationStatus,
+          status: publicationStatus,
         } as Vehicle;
       }
 
@@ -489,7 +504,73 @@ class ApiService {
 
   // Desactivar una publicación
   async deactivatePublication(publicationId: string): Promise<{ success: boolean; message: string }> {
-    return this.patch(`/publications/${publicationId}/deactivate`, {});
+    try {
+      return await this.patch(`/publications/${publicationId}/deactivate`, {});
+    } catch (deactivateError) {
+      // Fallback para backends que solo exponen cambio de estado genérico
+      try {
+        return await this.put(`/publications/${publicationId}/status`, {
+          status: 'Desactivada',
+          estado: 'Desactivada',
+        });
+      } catch (statusError) {
+        throw statusError || deactivateError;
+      }
+    }
+  }
+
+  async deletePublication(publicationId: string): Promise<{ success: boolean; message: string }> {
+    return this.delete(`/publications/${publicationId}`);
+  }
+
+  async getMyPublications(limit?: number, offset?: number): Promise<Vehicle[]> {
+    const params = [];
+    if (limit !== undefined) params.push(`limit=${limit}`);
+    if (offset !== undefined) params.push(`offset=${offset}`);
+    const query = params.length > 0 ? `?${params.join('&')}` : '';
+
+    const endpointCandidates = [
+      `/publications/my-publications${query}`,
+      `/publications/my${query}`,
+    ];
+
+    for (const endpoint of endpointCandidates) {
+      try {
+        const payload = await this.get(endpoint);
+        const list = Array.isArray(payload)
+          ? payload
+          : (payload?.publications || payload?.items || []);
+
+        return (list || []).map((pub: any) => ({
+          ...(pub?.vehiculo ? pub.vehiculo : pub),
+          publicationId: pub.publicationId ?? pub.id ?? pub?.publicacionId,
+          images: this.normalizePhotos(
+            pub.fotos ??
+            pub.images ??
+            pub.imagenes ??
+            pub?.vehiculo?.images ??
+            pub?.vehiculo?.imagenes ??
+            pub?.vehiculo?.fotos
+          ),
+          valor: pub.valor ?? pub?.vehiculo?.valor,
+          price: pub.price ?? pub.valor ?? pub?.vehiculo?.valor,
+          estado: pub.estado ?? pub.status,
+          status: pub.status ?? pub.estado,
+          id: pub?.vehiculo?.id ?? pub.id,
+        }));
+      } catch (error) {
+        // Intenta siguiente endpoint candidato
+      }
+    }
+
+    // Fallback defensivo: filtrar solo vehículos con publicación viva
+    const vehicles = await this.getMyVehicles(limit, offset);
+    return vehicles.filter((v: any) => {
+      const status = String(v?.estado || v?.status || '').toLowerCase();
+      const hasPublication = Boolean(v?.publicationId);
+      const isDeleted = ['eliminada', 'eliminado', 'deleted', 'removed'].includes(status);
+      return hasPublication && !isDeleted;
+    });
   }
 
   // Obtener marcas únicas de vehículos

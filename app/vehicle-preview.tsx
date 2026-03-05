@@ -13,7 +13,7 @@ export default function VehiclePreviewScreen() {
   const { id } = useLocalSearchParams();
   const [vehicle, setVehicle] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [muted, setMuted] = useState(false);
+  const [muted, setMuted] = useState(true);
   const listRef = useRef<FlatList>(null);
 
   useEffect(() => {
@@ -58,26 +58,28 @@ export default function VehiclePreviewScreen() {
   }, [vehicle]);
 
   useEffect(() => {
-    // Retrasar el inicio para asegurar que la UI esté lista
-    let timeout: ReturnType<typeof setTimeout>;
-    if (!loading && vehicle && narrationText && !muted) {
-      timeout = setTimeout(() => {
-        ttsService.speak(narrationText).catch(e => console.log('Error TTS', e));
-      }, 500); 
-    }
     return () => {
-      clearTimeout(timeout);
       ttsService.stop();
     };
-  }, [loading, vehicle, narrationText, muted]);
+  }, []);
+
+  const startNarration = () => {
+    if (!narrationText) return;
+
+    setMuted(false);
+    ttsService.speak(narrationText, {
+      onDone: () => setMuted(true),
+      onStopped: () => setMuted(true),
+      onError: () => setMuted(true),
+    }).catch(e => {
+      console.log('Error TTS', e);
+      setMuted(true);
+    });
+  };
 
   const toggleMute = () => {
     if (muted) {
-      setMuted(false);
-      // Reiniciar narración
-      if (narrationText) {
-        ttsService.speak(narrationText).catch(() => {});
-      }
+      startNarration();
     } else {
       setMuted(true);
       ttsService.stop();
@@ -140,7 +142,7 @@ export default function VehiclePreviewScreen() {
             >
               <Ionicons name={muted ? 'volume-mute' : 'volume-high'} size={22} color="#fff" />
             </TouchableOpacity>
-            <Text style={styles.muteLabel}>{muted ? 'Silenciado' : 'Narrando'}</Text>
+            <Text style={styles.muteLabel}>{muted ? 'Narrador apagado' : 'Narrando'}</Text>
           </View>
         </View>
 

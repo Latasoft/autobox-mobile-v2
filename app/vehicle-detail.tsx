@@ -23,10 +23,10 @@ export default function VehicleDetailScreen() {
   
   console.log('🚗 [VehicleDetailScreen] Params:', params);
   
-  const { vehicle, loading, isLiked, isOwner, toggleLike, deactivateVehicle, refresh } = useVehicleDetail();
+  const { vehicle, loading, isLiked, isOwner, toggleLike, deactivateVehicle, deleteVehiclePublication, refresh } = useVehicleDetail();
   console.log('🚗 [VehicleDetailScreen] State:', { loading, hasVehicle: !!vehicle });
   
-  const [muted, setMuted] = useState(false);
+  const [muted, setMuted] = useState(true);
   const [shareModalVisible, setShareModalVisible] = useState(false);
 
   // Refresh when screen comes into focus
@@ -58,25 +58,28 @@ export default function VehicleDetailScreen() {
   }, [vehicle]);
 
   useEffect(() => {
-    let timeout: ReturnType<typeof setTimeout>;
-    // Auto-play TTS on mount
-    if (!loading && vehicle && narrationText && !muted) {
-      timeout = setTimeout(() => {
-        ttsService.speak(narrationText).catch(e => console.log('Error TTS', e));
-      }, 500); 
-    }
     return () => {
-      clearTimeout(timeout);
       ttsService.stop();
     };
-  }, [loading, vehicle, narrationText, muted]);
+  }, []);
+
+  const startNarration = () => {
+    if (!narrationText) return;
+
+    setMuted(false);
+    ttsService.speak(narrationText, {
+      onDone: () => setMuted(true),
+      onStopped: () => setMuted(true),
+      onError: () => setMuted(true),
+    }).catch(e => {
+      console.log('Error TTS', e);
+      setMuted(true);
+    });
+  };
 
   const toggleMute = () => {
     if (muted) {
-      setMuted(false);
-      if (narrationText) {
-        ttsService.speak(narrationText).catch(() => {});
-      }
+      startNarration();
     } else {
       setMuted(true);
       ttsService.stop();
@@ -148,7 +151,7 @@ export default function VehicleDetailScreen() {
               onPress={toggleMute}
             >
               <Ionicons name={muted ? 'volume-mute' : 'volume-high'} size={24} color="#FFF" />
-              <Text style={styles.muteLabel}>{muted ? 'Silenciado' : 'Narrando'}</Text>
+              <Text style={styles.muteLabel}>{muted ? 'Narrador apagado' : 'Narrando'}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -240,6 +243,12 @@ export default function VehicleDetailScreen() {
               onPress={deactivateVehicle}
               style={{ borderColor: '#F44336', marginTop: 12 }}
               textStyle={{ color: '#F44336' }}
+            />
+            <Button
+              title="Eliminar Publicación"
+              variant="danger"
+              onPress={() => deleteVehiclePublication(() => router.replace('/(tabs)?tab=publications'))}
+              style={{ marginTop: 12 }}
             />
           </>
           )

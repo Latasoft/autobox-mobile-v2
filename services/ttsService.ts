@@ -24,32 +24,34 @@ class TTSService {
       // Iniciar música de fondo suave (No bloquear el habla si la música tarda)
       this.startBackgroundMusic().catch(err => console.log('⚠️ Error música async:', err));
       
+      const { onDone, onStopped, onError, ...restOptions } = options || {};
+
       return Speech.speak(text, {
         language: 'es-MX', // Español de México
         pitch: 1.0, // Pitch natural
         rate: 0.95, // Velocidad casi natural pero comprensible
+        ...restOptions,
         onDone: () => {
           console.log('✅ TTS completado');
           this.isSpeaking = false;
           this.currentNarration = null;
           this.stopBackgroundMusic();
-          options?.onDone?.();
+          onDone?.();
         },
         onStopped: () => {
           console.log('⏹️ TTS detenido');
           this.isSpeaking = false;
           this.currentNarration = null;
           this.stopBackgroundMusic();
-          options?.onStopped?.();
+          onStopped?.();
         },
         onError: (error) => {
           console.error('❌ Error en TTS:', error);
           this.isSpeaking = false;
           this.currentNarration = null;
           this.stopBackgroundMusic();
-          options?.onError?.(error);
+          onError?.(error);
         },
-        ...options,
       });
     } catch (error) {
       console.error('❌ Error al iniciar TTS:', error);

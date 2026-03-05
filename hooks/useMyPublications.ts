@@ -18,7 +18,7 @@ export const useMyPublications = () => {
     
     try {
       const offset = (pageNum - 1) * PAGE_SIZE;
-      const data = await apiService.getMyVehicles(PAGE_SIZE, offset);
+      const data = await apiService.getMyPublications(PAGE_SIZE, offset);
       
       if (pageNum === 1) {
         setVehicles(data);
