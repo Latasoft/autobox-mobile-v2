@@ -82,15 +82,6 @@ export default function SettingsScreen() {
       >
         <ScrollView contentContainerStyle={styles.content}>
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Horarios de Atención</Text>
-            <Button 
-              title="Gestionar Horario de Sede"
-              onPress={() => router.push('/(admin)/sede-schedule')}
-              variant="outline"
-            />
-          </View>
-
-          <View style={styles.section}>
             <Text style={styles.sectionTitle}>Precios</Text>
             <Input
               label="Precio Inspección"

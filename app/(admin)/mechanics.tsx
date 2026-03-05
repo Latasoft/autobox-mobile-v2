@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -18,6 +18,7 @@ import uploadService from '../../services/uploadService';
 import { Screen } from '../../components/ui/Screen';
 import { MechanicCard } from '../../components/admin/MechanicCard';
 import { Button } from '../../components/ui/Button';
+import { Select } from '../../components/ui/Select';
 
 export default function AdminMechanicsScreen() {
   const router = useRouter();
@@ -34,12 +35,29 @@ export default function AdminMechanicsScreen() {
   const [debtData, setDebtData] = useState<{totalDebt: number, count: number, inspections: any[]} | null>(null);
   const [receiptImage, setReceiptImage] = useState<string | null>(null);
   const [uploadingPayment, setUploadingPayment] = useState(false);
+  const [sedes, setSedes] = useState<{ id: number; nombre: string }[]>([]);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [selectedSedeId, setSelectedSedeId] = useState<string>('all');
+
+  const getMechanicSedeId = (mechanic: any): string | null => {
+    if (mechanic?.sedeId !== undefined && mechanic?.sedeId !== null) return String(mechanic.sedeId);
+    if (mechanic?.sede?.id !== undefined && mechanic?.sede?.id !== null) return String(mechanic.sede.id);
+    return null;
+  };
+
+  const getMechanicSedeName = (mechanic: any): string => {
+    return mechanic?.sede?.nombre || mechanic?.module || '';
+  };
 
   const loadMechanics = async () => {
     try {
       setLoading(true);
-      const mechanicsData = await adminService.getMechanics();
+      const [mechanicsData, sedesData] = await Promise.all([
+        adminService.getMechanics(),
+        adminService.getSedes().catch(() => []),
+      ]);
       setMechanics(mechanicsData);
+      setSedes((sedesData || []).map((s: any) => ({ id: s.id, nombre: s.nombre })));
     } catch (error: any) {
       console.error('Error loading mechanics:', error);
       Alert.alert('Error', error.message || 'No se pudieron cargar los mecánicos');
@@ -59,6 +77,28 @@ export default function AdminMechanicsScreen() {
     await loadMechanics();
     setRefreshing(false);
   };
+
+  const filteredMechanics = useMemo(() => {
+    return mechanics.filter((mechanic: any) => {
+      if (statusFilter !== 'all' && mechanic.status !== statusFilter) return false;
+
+      if (selectedSedeId !== 'all') {
+        const mechanicSedeId = getMechanicSedeId(mechanic);
+        const mechanicSedeName = getMechanicSedeName(mechanic).toLowerCase();
+        const selectedSedeName = (sedes.find(s => String(s.id) === selectedSedeId)?.nombre || '').toLowerCase();
+
+        if (mechanicSedeId) {
+          if (mechanicSedeId !== selectedSedeId) return false;
+        } else if (selectedSedeName) {
+          if (mechanicSedeName !== selectedSedeName) return false;
+        } else {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [mechanics, statusFilter, selectedSedeId, sedes]);
 
   const handleCreateMechanic = () => {
     router.push('/(admin)/create-mechanic');
@@ -184,13 +224,47 @@ export default function AdminMechanicsScreen() {
         />
       </View>
 
+      <View style={styles.filtersContainer}>
+        <View style={styles.statusFiltersRow}>
+          <TouchableOpacity
+            style={[styles.filterChip, statusFilter === 'all' && styles.filterChipActive]}
+            onPress={() => setStatusFilter('all')}
+          >
+            <Text style={[styles.filterChipText, statusFilter === 'all' && styles.filterChipTextActive]}>Todos</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.filterChip, statusFilter === 'active' && styles.filterChipActive]}
+            onPress={() => setStatusFilter('active')}
+          >
+            <Text style={[styles.filterChipText, statusFilter === 'active' && styles.filterChipTextActive]}>Activos</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.filterChip, statusFilter === 'inactive' && styles.filterChipActive]}
+            onPress={() => setStatusFilter('inactive')}
+          >
+            <Text style={[styles.filterChipText, statusFilter === 'inactive' && styles.filterChipTextActive]}>Inactivos</Text>
+          </TouchableOpacity>
+        </View>
+
+        <Select
+          label="Sede"
+          value={selectedSedeId}
+          onChange={setSelectedSedeId}
+          options={[
+            { label: 'Todas las sedes', value: 'all' },
+            ...sedes.map((s) => ({ label: s.nombre, value: String(s.id) })),
+          ]}
+          placeholder="Filtrar por sede"
+        />
+      </View>
+
       {loading && !refreshing ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#007bff" />
         </View>
       ) : (
         <FlatList
-          data={mechanics}
+          data={filteredMechanics}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
             <MechanicCard
@@ -210,7 +284,7 @@ export default function AdminMechanicsScreen() {
           }
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No hay mecánicos registrados</Text>
+              <Text style={styles.emptyText}>No hay mecánicos para los filtros seleccionados</Text>
             </View>
           }
         />
@@ -291,6 +365,39 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  filtersContainer: {
+    backgroundColor: '#FFF',
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEEEEE',
+  },
+  statusFiltersRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 8,
+  },
+  filterChip: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#FFF',
+  },
+  filterChipActive: {
+    backgroundColor: '#007bff',
+    borderColor: '#007bff',
+  },
+  filterChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  filterChipTextActive: {
+    color: '#FFF',
   },
   listContent: {
     padding: 16,

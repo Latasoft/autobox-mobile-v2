@@ -257,8 +257,34 @@ class AdminService {
     }
   }
 
+  async deleteUser(id: string): Promise<void> {
+    try {
+      const headers = await this.getHeaders();
+      let response = await fetch(`${API_URL}/admin/users/${id}`, {
+        method: 'DELETE',
+        headers,
+      });
+
+      // Fallback para backends que exponen borrado por ruta base de usuarios
+      if (!response.ok && response.status === 404) {
+        response = await fetch(`${API_URL}/users/${id}`, {
+          method: 'DELETE',
+          headers,
+        });
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Error al eliminar usuario');
+      }
+    } catch (error) {
+      console.error('Error deleteUser:', error);
+      throw error;
+    }
+  }
+
   // Mecánicos
-  async getAllMechanics(search?: string, date?: string, time?: string): Promise<Mechanic[]> {
+  async getAllMechanics(search?: string, date?: string, time?: string, status?: 'active' | 'inactive', sedeId?: number): Promise<Mechanic[]> {
     try {
       const headers = await this.getHeaders();
       let url = `${API_URL}/admin/mechanics`;
@@ -267,6 +293,8 @@ class AdminService {
       if (search) params.append('search', search);
       if (date) params.append('date', date);
       if (time) params.append('time', time);
+      if (status) params.append('status', status);
+      if (sedeId !== undefined && sedeId !== null) params.append('sedeId', String(sedeId));
 
       if (params.toString()) {
         url += `?${params.toString()}`;

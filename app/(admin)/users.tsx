@@ -9,6 +9,7 @@ import {
   RefreshControl,
   Image,
   TextInput,
+  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -97,6 +98,29 @@ export default function UsersScreen() {
     router.push({ pathname: '/(admin)/user-detail', params: { id: user.id } });
   };
 
+  const handleDeleteUser = (user: any) => {
+    Alert.alert(
+      'Eliminar Usuario',
+      `¿Seguro que deseas eliminar de raiz a ${user.primerNombre || ''} ${user.primerApellido || ''}? Esta acción no se puede deshacer.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await adminService.deleteUser(user.id);
+              Alert.alert('Éxito', 'Usuario eliminado correctamente');
+              await loadUsers();
+            } catch (error: any) {
+              Alert.alert('Error', error?.message || 'No se pudo eliminar el usuario');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   // ── Badges ─────────────────────────────────────────────────────────────────
   const getRoleBadge = (role: string) => {
     const map: Record<string, { color: string; label: string }> = {
@@ -171,7 +195,19 @@ export default function UsersScreen() {
         <View style={styles.right}>
           {getRoleBadge(item.rol)}
           {getEstadoBadge(item.estado)}
-          <Ionicons name="chevron-forward" size={18} color="#ccc" style={{ marginTop: 6 }} />
+          <View style={styles.actionsRight}>
+            <TouchableOpacity
+              onPress={(e) => {
+                e.stopPropagation();
+                handleDeleteUser(item);
+              }}
+              style={styles.deleteAction}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            >
+              <Ionicons name="trash-outline" size={16} color="#F44336" />
+            </TouchableOpacity>
+            <Ionicons name="chevron-forward" size={18} color="#ccc" style={{ marginTop: 0 }} />
+          </View>
         </View>
       </View>
     </TouchableOpacity>
@@ -329,6 +365,20 @@ const styles = StyleSheet.create({
   email: { fontSize: 13, color: '#666', marginTop: 1 },
   phone: { fontSize: 12, color: '#999', marginTop: 1 },
   right: { alignItems: 'flex-end', justifyContent: 'space-between', gap: 4 },
+  actionsRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 6,
+  },
+  deleteAction: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FDECEC',
+  },
   badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8 },
   badgeText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
 
