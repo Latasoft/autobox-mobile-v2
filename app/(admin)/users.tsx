@@ -101,7 +101,7 @@ export default function UsersScreen() {
   const handleDeleteUser = (user: any) => {
     Alert.alert(
       'Eliminar Usuario',
-      `¿Seguro que deseas eliminar de raiz a ${user.primerNombre || ''} ${user.primerApellido || ''}? Esta acción no se puede deshacer.`,
+      `¿Seguro que deseas eliminar definitivamente a ${user.primerNombre || ''} ${user.primerApellido || ''}? Esta acción no se puede deshacer.`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
