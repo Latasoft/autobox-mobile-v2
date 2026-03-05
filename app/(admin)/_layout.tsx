@@ -26,7 +26,7 @@ function AdminTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const hiddenRoutes = [
     'create-mechanic',
     'mechanic-schedule',
-    'sede-schedule',
+    'sede-detail',
     'mechanic-detail',
     'mechanic-inspections',
     'mechanic-payments',
@@ -182,6 +182,7 @@ export default function AdminLayout() {
   const hideHeaderScreens = [
     'create-mechanic', 
     'mechanic-schedule', 
+    'sede-detail',
     'notifications', 
     'mechanic-detail', 
     'mechanic-inspections',
@@ -305,6 +306,24 @@ export default function AdminLayout() {
           }} 
         />
         <Tabs.Screen 
+          name="sedes" 
+          options={{
+            title: 'Sedes',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="storefront-outline" size={size} color={color} />
+            ),
+          }} 
+        />
+        <Tabs.Screen 
+          name="sede-schedule" 
+          options={{
+            title: 'Horarios',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="time-outline" size={size} color={color} />
+            ),
+          }} 
+        />
+        <Tabs.Screen 
           name="settings" 
           options={{
             title: 'Ajustes',
@@ -348,7 +367,7 @@ export default function AdminLayout() {
           }} 
         />
         <Tabs.Screen 
-          name="sede-schedule" 
+          name="sede-detail" 
           options={{ 
             href: null,
             tabBarStyle: { display: 'none' }
