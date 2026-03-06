@@ -8,12 +8,10 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
-import { useRouter } from 'expo-router';
-import apiService from '../../services/apiService';
-import authService from '../../services/authService';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Screen } from '../../components/ui/Screen';
 import { Button } from '../../components/ui/Button';
-import { useFocusEffect } from '@react-navigation/native';
+import mechanicSedeService, { MechanicWorkingSede } from '../../services/mechanicSedeService';
 
 const DAYS = [
   { id: 1, name: 'Lunes' },
@@ -25,168 +23,126 @@ const DAYS = [
   { id: 7, name: 'Domingo' },
 ];
 
+const uniqueSorted = (values: string[]) => Array.from(new Set(values)).sort();
+
 export default function MechanicScheduleScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
   const [mechanicId, setMechanicId] = useState<string | null>(null);
+  const [workingSedes, setWorkingSedes] = useState<MechanicWorkingSede[]>([]);
+  const [selectedSedeId, setSelectedSedeId] = useState<number | null>(null);
+
   const [selectedDay, setSelectedDay] = useState<number>(1);
   const [schedules, setSchedules] = useState<Record<number, string[]>>({});
-  const [timeSlots, setTimeSlots] = useState<string[]>([]);
+  const [availableSlots, setAvailableSlots] = useState<Record<number, string[]>>({});
 
-  // Initialize empty schedule
-  const initializeSchedule = () => {
-    const initialSchedule: Record<number, string[]> = {};
-    DAYS.forEach(day => {
-      initialSchedule[day.id] = [];
+  const initializeScheduleMap = () => {
+    const map: Record<number, string[]> = {};
+    DAYS.forEach((day) => {
+      map[day.id] = [];
     });
-    setSchedules(initialSchedule);
+    return map;
   };
 
-  const [sedeSchedules, setSedeSchedules] = useState<Record<number, string[]>>({});
+  const mapFromApiSchedule = (data: any[]): Record<number, string[]> => {
+    const scheduleMap = initializeScheduleMap();
+    data.forEach((item: any) => {
+      if (item.isActive) {
+        const existing = scheduleMap[item.dayOfWeek] || [];
+        scheduleMap[item.dayOfWeek] = uniqueSorted([...(existing || []), ...(item.timeSlots || [])]);
+      }
+    });
+    return scheduleMap;
+  };
 
-  const loadSedeSchedule = async () => {
+  const loadSedeScheduleState = async (currentMechanicId: string, sedeId: number) => {
+    const [sedeSchedule, mechanicSchedule] = await Promise.all([
+      mechanicSedeService.getSedeSchedule(sedeId),
+      mechanicSedeService.getMechanicScheduleBySede(currentMechanicId, sedeId),
+    ]);
+
+    setAvailableSlots(mapFromApiSchedule(sedeSchedule));
+    setSchedules(mapFromApiSchedule(mechanicSchedule));
+  };
+
+  const loadData = async () => {
     try {
-      console.log('Loading sede schedule...');
-      const data = await apiService.get('/mechanics/sede-schedule/1');
-      console.log('Sede schedule loaded:', data ? 'success' : 'empty');
-      const scheduleMap: Record<number, string[]> = {};
-      
-      DAYS.forEach(day => {
-        scheduleMap[day.id] = [];
-      });
+      setLoading(true);
+      const currentMechanicId = await mechanicSedeService.getCurrentMechanicId();
+      setMechanicId(currentMechanicId);
 
-      if (Array.isArray(data)) {
-        data.forEach((item: any) => {
-          if (item.isActive) {
-            const existing = scheduleMap[item.dayOfWeek] || [];
-            scheduleMap[item.dayOfWeek] = [...existing, ...(item.timeSlots || [])].sort();
-          }
-        });
+      const sedes = await mechanicSedeService.getMyWorkingSedes();
+      setWorkingSedes(sedes);
+
+      if (sedes.length > 0) {
+        const nextSedeId = selectedSedeId && sedes.some((s) => s.id === selectedSedeId)
+          ? selectedSedeId
+          : sedes[0].id;
+        setSelectedSedeId(nextSedeId);
+        await loadSedeScheduleState(currentMechanicId, nextSedeId);
+      } else {
+        setSelectedSedeId(null);
+        setAvailableSlots(initializeScheduleMap());
+        setSchedules(initializeScheduleMap());
       }
-
-      setSedeSchedules(scheduleMap);
-      return scheduleMap;
-    } catch (error) {
-      console.error('Error loading sede schedule:', error);
-      return null;
+    } catch (error: any) {
+      Alert.alert('Error', error?.message || 'No se pudo cargar el horario');
+    } finally {
+      setLoading(false);
     }
-  };
-
-  const loadMechanicProfile = async () => {
-    try {
-      const user = await authService.getUser();
-      if (!user) {
-        Alert.alert('Error', 'Debes iniciar sesión');
-        return null;
-      }
-
-      const mechanicData = await apiService.get(`/mechanics/by-user/${user.id}`);
-      if (mechanicData) {
-        setMechanicId(mechanicData.id);
-        return mechanicData.id;
-      }
-      return null;
-    } catch (error) {
-      console.error('Error loading mechanic profile:', error);
-      return null;
-    }
-  };
-
-  const loadSchedule = async (id: string) => {
-    try {
-      console.log('Loading mechanic schedule for:', id);
-      const data = await apiService.get(`/mechanics/${id}/schedule`);
-      console.log('Mechanic schedule loaded:', data ? 'success' : 'empty');
-      const scheduleMap: Record<number, string[]> = {};
-      
-      DAYS.forEach(day => {
-        scheduleMap[day.id] = [];
-      });
-
-      if (Array.isArray(data)) {
-        data.forEach((item: any) => {
-          if (item.isActive) {
-            const existing = scheduleMap[item.dayOfWeek] || [];
-            scheduleMap[item.dayOfWeek] = [...existing, ...(item.timeSlots || [])].sort();
-          }
-        });
-      }
-
-      setSchedules(scheduleMap);
-    } catch (error) {
-      console.error('Error loading schedule:', error);
-      Alert.alert('Error', 'No se pudo cargar el horario');
-    }
-  };
-
-  const init = async () => {
-    setLoading(true);
-    initializeSchedule();
-    
-    const sedeMap = await loadSedeSchedule();
-    
-    const id = await loadMechanicProfile();
-    if (id) {
-      await loadSchedule(id);
-    }
-
-    if (sedeMap) {
-      setTimeSlots(sedeMap[selectedDay] || []);
-    }
-    
-    setLoading(false);
   };
 
   useEffect(() => {
-    const sedeSlots = sedeSchedules[selectedDay] || [];
-    const userSlots = schedules[selectedDay] || [];
-    
-    // Combine and sort unique slots to ensure user's saved slots are visible
-    // even if they differ from the current Sede schedule
-    const allSlots = Array.from(new Set([...sedeSlots, ...userSlots])).sort();
-    
-    setTimeSlots(allSlots);
-  }, [selectedDay, sedeSchedules, schedules]);
+    if (!mechanicId || !selectedSedeId) return;
+
+    loadSedeScheduleState(mechanicId, selectedSedeId).catch(() => {
+      Alert.alert('Error', 'No se pudo cambiar la sede seleccionada');
+    });
+  }, [selectedSedeId]);
 
   useFocusEffect(
     useCallback(() => {
-      init();
+      loadData();
     }, [])
   );
 
+  const currentDaySlots = uniqueSorted([
+    ...(availableSlots[selectedDay] || []),
+    ...(schedules[selectedDay] || []),
+  ]);
+
   const toggleSlot = (time: string) => {
-    setSchedules(prev => {
+    setSchedules((prev) => {
       const currentSlots = prev[selectedDay] || [];
-      const newSlots = currentSlots.includes(time)
-        ? currentSlots.filter(t => t !== time)
-        : [...currentSlots, time].sort();
-      
+      const nextSlots = currentSlots.includes(time)
+        ? currentSlots.filter((item) => item !== time)
+        : uniqueSorted([...currentSlots, time]);
+
       return {
         ...prev,
-        [selectedDay]: newSlots
+        [selectedDay]: nextSlots,
       };
     });
   };
 
   const handleSave = async () => {
-    if (!mechanicId) return;
+    if (!mechanicId || !selectedSedeId) return;
 
     try {
       setSaving(true);
-      
-      // Convert map to array for API
-      const scheduleArray = Object.entries(schedules).map(([day, slots]) => ({
-        dayOfWeek: parseInt(day),
-        timeSlots: slots,
-        isActive: slots.length > 0
+      const payload = DAYS.map((day) => ({
+        dayOfWeek: day.id,
+        timeSlots: schedules[day.id] || [],
+        isActive: (schedules[day.id] || []).length > 0,
+        sedeId: selectedSedeId,
       }));
 
-      await apiService.put(`/mechanics/${mechanicId}/schedule`, { schedules: scheduleArray });
+      await mechanicSedeService.saveMechanicScheduleBySede(mechanicId, selectedSedeId, payload);
       Alert.alert('Éxito', 'Horario actualizado correctamente');
     } catch (error: any) {
-      console.error('Error saving schedule:', error);
-      Alert.alert('Error', error.message || 'No se pudo guardar el horario');
+      Alert.alert('Error', error?.message || 'No se pudo guardar el horario');
     } finally {
       setSaving(false);
     }
@@ -200,70 +156,76 @@ export default function MechanicScheduleScreen() {
     );
   }
 
+  if (!selectedSedeId) {
+    return (
+      <Screen style={styles.emptyRoot}>
+        <Text style={styles.emptyTitle}>Aún no tienes sedes seleccionadas</Text>
+        <Text style={styles.emptySubtitle}>Configura tu primer Autobox para habilitar la agenda.</Text>
+        <Button
+          title="IR A MIS AUTOBOX"
+          onPress={() => router.push('/(mechanic)/my-autobox')}
+          style={styles.goAutoboxButton}
+        />
+      </Screen>
+    );
+  }
+
   return (
     <Screen style={styles.container}>
+      <View style={styles.sedeSection}>
+        <Text style={styles.sedeLabel}>Sedes con horario</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          {workingSedes.map((sede) => (
+            <TouchableOpacity
+              key={sede.id}
+              style={[styles.sedeChip, selectedSedeId === sede.id && styles.sedeChipActive]}
+              onPress={() => setSelectedSedeId(sede.id)}
+            >
+              <Text style={[styles.sedeChipText, selectedSedeId === sede.id && styles.sedeChipTextActive]}>{sede.nombre}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+
       <View style={styles.daysContainer}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          {DAYS.map(day => (
+          {DAYS.map((day) => (
             <TouchableOpacity
               key={day.id}
-              style={[
-                styles.dayButton,
-                selectedDay === day.id && styles.selectedDayButton
-              ]}
+              style={[styles.dayButton, selectedDay === day.id && styles.selectedDayButton]}
               onPress={() => setSelectedDay(day.id)}
             >
-              <Text style={[
-                styles.dayText,
-                selectedDay === day.id && styles.selectedDayText
-              ]}>
-                {day.name}
-              </Text>
-              {schedules[day.id]?.length > 0 && (
-                <View style={styles.dot} />
-              )}
+              <Text style={[styles.dayText, selectedDay === day.id && styles.selectedDayText]}>{day.name}</Text>
+              {(schedules[day.id] || []).length > 0 && <View style={styles.dot} />}
             </TouchableOpacity>
           ))}
         </ScrollView>
       </View>
 
       <ScrollView style={styles.slotsContainer}>
-        <Text style={styles.sectionTitle}>
-          Horario para {DAYS.find(d => d.id === selectedDay)?.name}
-        </Text>
-        <Text style={styles.subtitle}>Selecciona las horas disponibles</Text>
+        <Text style={styles.sectionTitle}>Horario para {DAYS.find((d) => d.id === selectedDay)?.name}</Text>
+        <Text style={styles.subtitle}>Sede: {workingSedes.find((sede) => sede.id === selectedSedeId)?.nombre}</Text>
 
         <View style={styles.grid}>
-          {timeSlots.map(time => {
-            const isSelected = schedules[selectedDay]?.includes(time);
+          {currentDaySlots.map((time) => {
+            const isSelected = (schedules[selectedDay] || []).includes(time);
             return (
               <TouchableOpacity
                 key={time}
-                style={[
-                  styles.slot,
-                  isSelected && styles.selectedSlot
-                ]}
+                style={[styles.slot, isSelected && styles.selectedSlot]}
                 onPress={() => toggleSlot(time)}
               >
-                <Text style={[
-                  styles.slotText,
-                  isSelected && styles.selectedSlotText
-                ]}>
-                  {time}
-                </Text>
+                <Text style={[styles.slotText, isSelected && styles.selectedSlotText]}>{time}</Text>
               </TouchableOpacity>
             );
           })}
         </View>
+
+        {currentDaySlots.length === 0 && <Text style={styles.emptySlotsText}>No hay bloques disponibles para este día.</Text>}
       </ScrollView>
 
       <View style={styles.footer}>
-        <Button
-          title="Guardar Horario"
-          onPress={handleSave}
-          loading={saving}
-          style={styles.saveButton}
-        />
+        <Button title="Guardar Horario" onPress={handleSave} loading={saving} style={styles.saveButton} />
       </View>
     </Screen>
   );
@@ -278,6 +240,40 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  sedeSection: {
+    backgroundColor: '#FFF',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEE',
+  },
+  sedeLabel: {
+    fontSize: 12,
+    color: '#777',
+    marginBottom: 8,
+    fontWeight: '600',
+  },
+  sedeChip: {
+    marginRight: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    backgroundColor: '#FFF',
+  },
+  sedeChipActive: {
+    borderColor: '#FF9800',
+    backgroundColor: '#FFF3E0',
+  },
+  sedeChipText: {
+    fontSize: 12,
+    color: '#555',
+    fontWeight: '600',
+  },
+  sedeChipTextActive: {
+    color: '#E65100',
   },
   daysContainer: {
     backgroundColor: '#FFF',
@@ -353,6 +349,11 @@ const styles = StyleSheet.create({
     color: '#2196F3',
     fontWeight: 'bold',
   },
+  emptySlotsText: {
+    marginTop: 18,
+    color: '#777',
+    textAlign: 'center',
+  },
   footer: {
     padding: 16,
     backgroundColor: '#FFF',
@@ -361,5 +362,29 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     backgroundColor: '#FF9800',
+  },
+  emptyRoot: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#F5F5F5',
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#222',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  emptySubtitle: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  goAutoboxButton: {
+    backgroundColor: '#FF9800',
+    width: '100%',
   },
 });

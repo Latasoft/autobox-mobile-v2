@@ -37,6 +37,17 @@ export interface MechanicSchedule {
   dayOfWeek: number;
   timeSlots: string[];
   isActive: boolean;
+  sedeId?: number;
+  sede?: {
+    id: number;
+    nombre: string;
+  };
+}
+
+export interface MechanicWorkingSede {
+  id: number;
+  nombre: string;
+  direccion?: string;
 }
 
 export interface UpdateScheduleDto {
@@ -532,6 +543,65 @@ class AdminService {
     }
   }
 
+  async getMechanicWorkingSedes(mechanicId: string): Promise<MechanicWorkingSede[]> {
+    const endpoints = [
+      `${API_URL}/admin/mechanics/${mechanicId}/working-sedes`,
+      `${API_URL}/admin/mechanics/${mechanicId}/sedes`,
+    ];
+
+    const headers = await this.getHeaders();
+    for (const endpoint of endpoints) {
+      try {
+        const response = await fetch(endpoint, { headers });
+        if (!response.ok) continue;
+
+        const data = await response.json();
+        if (!Array.isArray(data)) continue;
+
+        return data
+          .map((item: any) => ({
+            id: Number(item.id ?? item.sedeId ?? item.sede?.id),
+            nombre: String(item.nombre ?? item.sede?.nombre ?? `Autobox ${item.id}`),
+            direccion: item.direccion ?? item.sede?.direccion,
+          }))
+          .filter((item: MechanicWorkingSede) => Number.isFinite(item.id));
+      } catch (_error) {
+        // Try next endpoint.
+      }
+    }
+
+    return [];
+  }
+
+  async getMechanicScheduleBySede(mechanicId: string, sedeId: number): Promise<MechanicSchedule[]> {
+    const endpoints = [
+      `${API_URL}/admin/mechanics/${mechanicId}/schedule?sedeId=${sedeId}`,
+      `${API_URL}/admin/mechanics/${mechanicId}/schedule/${sedeId}`,
+      `${API_URL}/admin/mechanics/${mechanicId}/schedule`,
+    ];
+
+    const headers = await this.getHeaders();
+    for (const endpoint of endpoints) {
+      try {
+        const response = await fetch(endpoint, { headers });
+        if (!response.ok) continue;
+
+        const data = await response.json();
+        if (!Array.isArray(data)) continue;
+
+        return data.filter((item: any) => {
+          const itemSedeId = Number(item.sedeId ?? item.sede?.id);
+          if (!Number.isFinite(itemSedeId)) return true;
+          return itemSedeId === sedeId;
+        });
+      } catch (_error) {
+        // Try next endpoint.
+      }
+    }
+
+    return [];
+  }
+
   async updateMechanicSchedule(mechanicId: string, data: UpdateScheduleDto): Promise<MechanicSchedule[]> {
     try {
       const headers = await this.getHeaders();
@@ -550,6 +620,56 @@ class AdminService {
       console.error('Error updateMechanicSchedule:', error);
       throw error;
     }
+  }
+
+  async blockMechanicFromSede(mechanicId: string, sedeId: number): Promise<void> {
+    const endpoints = [
+      `${API_URL}/admin/mechanics/${mechanicId}/block-sede`,
+      `${API_URL}/admin/mechanics/${mechanicId}/blocked-sedes`,
+    ];
+
+    const headers = await this.getHeaders();
+    for (const endpoint of endpoints) {
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ sedeId }),
+        });
+
+        if (!response.ok) continue;
+        return;
+      } catch (_error) {
+        // Try next endpoint.
+      }
+    }
+
+    throw new Error('No se pudo bloquear al mecánico de la sede seleccionada');
+  }
+
+  async changeMechanicSede(mechanicId: string, sedeId: number): Promise<void> {
+    const endpoints = [
+      `${API_URL}/admin/mechanics/${mechanicId}/change-sede`,
+      `${API_URL}/admin/mechanics/${mechanicId}/working-sedes`,
+    ];
+
+    const headers = await this.getHeaders();
+    for (const endpoint of endpoints) {
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ sedeId }),
+        });
+
+        if (!response.ok) continue;
+        return;
+      } catch (_error) {
+        // Try next endpoint.
+      }
+    }
+
+    throw new Error('No se pudo cambiar la sede del mecánico');
   }
 
   // ==================== SEDES ====================

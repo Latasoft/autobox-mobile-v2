@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, ActivityIndicator, Alert, Image, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, ActivityIndicator, Alert, Image, TouchableOpacity, Modal } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../../components/ui/Screen';
 import { Button } from '../../components/ui/Button';
 import { ProfileImageUploader } from '../../components/admin/ProfileImageUploader';
-import adminService, { Mechanic } from '../../services/adminService';
+import adminService, { Mechanic, Sede } from '../../services/adminService';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
+import { Select } from '../../components/ui/Select';
 
 export default function MechanicDetailScreen() {
   const { id } = useLocalSearchParams();
@@ -21,10 +22,25 @@ export default function MechanicDetailScreen() {
   const [phone, setPhone] = useState('');
   const [profilePhoto, setProfilePhoto] = useState('');
   const [email, setEmail] = useState('');
+  const [sedes, setSedes] = useState<Sede[]>([]);
+  const [showSedeModal, setShowSedeModal] = useState(false);
+  const [sedeActionType, setSedeActionType] = useState<'block' | 'change' | null>(null);
+  const [selectedSedeId, setSelectedSedeId] = useState<string>('');
+  const [runningSedeAction, setRunningSedeAction] = useState(false);
 
   useEffect(() => {
     loadMechanic();
+    loadSedes();
   }, [id]);
+
+  const loadSedes = async () => {
+    try {
+      const data = await adminService.getSedes();
+      setSedes(data || []);
+    } catch (error) {
+      console.error('Error loading sedes:', error);
+    }
+  };
 
   const loadMechanic = async () => {
     try {
@@ -211,6 +227,49 @@ export default function MechanicDetailScreen() {
     );
   };;
 
+  const handleViewSchedule = () => {
+    if (!mechanic) return;
+    router.push({
+      pathname: '/(admin)/mechanic-schedule',
+      params: {
+        id: mechanic.id,
+        name: `${mechanic.firstName} ${mechanic.lastName}`,
+        viewOnly: 'true',
+      },
+    });
+  };
+
+  const openSedeActionModal = (type: 'block' | 'change') => {
+    setSedeActionType(type);
+    setSelectedSedeId('');
+    setShowSedeModal(true);
+  };
+
+  const runSedeAction = async () => {
+    if (!mechanic || !sedeActionType || !selectedSedeId) return;
+
+    try {
+      setRunningSedeAction(true);
+      const sedeId = Number(selectedSedeId);
+      if (sedeActionType === 'block') {
+        await adminService.blockMechanicFromSede(mechanic.id, sedeId);
+        Alert.alert('Éxito', 'Mecánico bloqueado correctamente de la sede seleccionada.');
+      } else {
+        await adminService.changeMechanicSede(mechanic.id, sedeId);
+        Alert.alert('Éxito', 'Sede del mecánico actualizada correctamente.');
+      }
+
+      setShowSedeModal(false);
+      setSedeActionType(null);
+      setSelectedSedeId('');
+      await loadMechanic();
+    } catch (error: any) {
+      Alert.alert('Error', error?.message || 'No se pudo ejecutar la acción de sede');
+    } finally {
+      setRunningSedeAction(false);
+    }
+  };
+
   if (loading) {
     return (
       <Screen>
@@ -340,7 +399,72 @@ export default function MechanicDetailScreen() {
             </View>
             <Ionicons name="chevron-forward" size={20} color="#999" />
           </TouchableOpacity>
+
+          <View style={styles.adminActionButtonsSection}>
+            <Button
+              title="Ver horario"
+              onPress={handleViewSchedule}
+              icon={<Ionicons name="time-outline" size={20} color="#FFF" />}
+              style={styles.viewScheduleButton}
+            />
+
+            <Button
+              title="Cambiar de sede"
+              onPress={() => openSedeActionModal('change')}
+              icon={<Ionicons name="swap-horizontal-outline" size={20} color="#FFF" />}
+              style={styles.changeSedeButton}
+            />
+
+            <Button
+              title="Bloquear mecánico de sede"
+              variant="danger"
+              onPress={() => openSedeActionModal('block')}
+              icon={<Ionicons name="lock-closed-outline" size={20} color="#FFF" />}
+              style={styles.blockSedeButton}
+            />
+          </View>
         </View>
+
+        <Modal
+          visible={showSedeModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowSedeModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>
+                {sedeActionType === 'block' ? 'Bloquear mecánico de sede' : 'Cambiar mecánico de sede'}
+              </Text>
+              <Select
+                label="Sede"
+                value={selectedSedeId}
+                onChange={setSelectedSedeId}
+                options={sedes.map((sede) => ({ label: sede.nombre, value: String(sede.id) }))}
+                placeholder="Selecciona una sede"
+              />
+
+              <View style={styles.modalButtonsRow}>
+                <Button
+                  title="Cancelar"
+                  variant="outline"
+                  onPress={() => setShowSedeModal(false)}
+                  style={styles.modalButton}
+                />
+                <Button
+                  title={sedeActionType === 'block' ? 'Bloquear' : 'Cambiar'}
+                  onPress={runSedeAction}
+                  loading={runningSedeAction}
+                  disabled={!selectedSedeId || runningSedeAction}
+                  style={[
+                    styles.modalButton,
+                    sedeActionType === 'block' ? styles.blockButton : styles.changeButton,
+                  ]}
+                />
+              </View>
+            </View>
+          </View>
+        </Modal>
 
         {/* Delete Section */}
         <View style={styles.deleteSection}>
@@ -449,5 +573,49 @@ const styles = StyleSheet.create({
   },
   deleteButton: {
     marginTop: 0,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  modalCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 12,
+    padding: 16,
+  },
+  modalTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 12,
+  },
+  modalButtonsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 8,
+  },
+  modalButton: {
+    flex: 1,
+  },
+  blockButton: {
+    backgroundColor: '#D32F2F',
+  },
+  changeButton: {
+    backgroundColor: '#F9A825',
+  },
+  adminActionButtonsSection: {
+    marginTop: 10,
+    gap: 10,
+  },
+  viewScheduleButton: {
+    backgroundColor: '#1E88E5',
+  },
+  changeSedeButton: {
+    backgroundColor: '#F9A825',
+  },
+  blockSedeButton: {
+    backgroundColor: '#D32F2F',
   },
 });

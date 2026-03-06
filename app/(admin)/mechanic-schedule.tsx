@@ -9,11 +9,10 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import adminService from '../../services/adminService';
+import adminService, { MechanicWorkingSede } from '../../services/adminService';
 import { Screen } from '../../components/ui/Screen';
 import { Button } from '../../components/ui/Button';
 import { useFocusEffect } from '@react-navigation/native';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 
 const DAYS = [
   { id: 1, name: 'Lunes' },
@@ -25,67 +24,89 @@ const DAYS = [
   { id: 7, name: 'Domingo' },
 ];
 
+const uniqueSorted = (slots: string[]) => Array.from(new Set(slots)).sort();
+
 export default function AdminMechanicScheduleScreen() {
   const router = useRouter();
-  const { id, name } = useLocalSearchParams();
+  const { id, name, viewOnly } = useLocalSearchParams();
   const mechanicId = Array.isArray(id) ? id[0] : id;
   const mechanicName = Array.isArray(name) ? name[0] : name;
+  const isViewOnly = String(Array.isArray(viewOnly) ? viewOnly[0] : viewOnly || '').toLowerCase() === 'true';
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [selectedDay, setSelectedDay] = useState<number>(1);
+
+  const [workingSedes, setWorkingSedes] = useState<MechanicWorkingSede[]>([]);
+  const [selectedSedeId, setSelectedSedeId] = useState<number | null>(null);
+
   const [schedules, setSchedules] = useState<Record<number, string[]>>({});
   const [timeSlots, setTimeSlots] = useState<string[]>([]);
 
-  // Initialize empty schedule
-  const initializeSchedule = () => {
-    const initialSchedule: Record<number, string[]> = {};
-    DAYS.forEach(day => {
-      initialSchedule[day.id] = [];
+  const initializeMap = () => {
+    const empty: Record<number, string[]> = {};
+    DAYS.forEach((day) => {
+      empty[day.id] = [];
     });
-    setSchedules(initialSchedule);
+    return empty;
   };
 
-  const loadTimeSlots = () => {
-    const slots = [];
-    for (let hour = 8; hour < 22; hour++) {
-      slots.push(`${hour.toString().padStart(2, '0')}:00`);
-      slots.push(`${hour.toString().padStart(2, '0')}:30`);
-    }
-    setTimeSlots(slots);
-  };
+  const mapSchedules = (data: any[]) => {
+    const map = initializeMap();
 
-  const loadSchedule = async () => {
-    if (!mechanicId) return;
-    try {
-      const data = await adminService.getMechanicSchedule(mechanicId);
-      const scheduleMap: Record<number, string[]> = {};
-      
-      DAYS.forEach(day => {
-        scheduleMap[day.id] = [];
-      });
-
-      if (Array.isArray(data)) {
-        data.forEach((item: any) => {
-          if (item.isActive) {
-            scheduleMap[item.dayOfWeek] = item.timeSlots || [];
-          }
-        });
+    data.forEach((item: any) => {
+      if (item.isActive) {
+        const existing = map[item.dayOfWeek] || [];
+        map[item.dayOfWeek] = uniqueSorted([...(existing || []), ...(item.timeSlots || [])]);
       }
+    });
 
-      setSchedules(scheduleMap);
-    } catch (error) {
-      console.error('Error loading schedule:', error);
-      Alert.alert('Error', 'No se pudo cargar el horario');
-    }
+    return map;
+  };
+
+  const loadScheduleForSede = async (sedeId: number) => {
+    if (!mechanicId) return;
+
+    const [mechanicSchedule, sedeSchedule] = await Promise.all([
+      adminService.getMechanicScheduleBySede(mechanicId, sedeId).catch(() => []),
+      adminService.getSedeSchedule(sedeId).catch(() => []),
+    ]);
+
+    const map = mapSchedules(mechanicSchedule as any[]);
+    setSchedules(map);
+
+    const sedeMap = mapSchedules(sedeSchedule as any[]);
+    const daySlots = uniqueSorted([...(sedeMap[selectedDay] || []), ...(map[selectedDay] || [])]);
+    setTimeSlots(daySlots);
   };
 
   const init = async () => {
-    setLoading(true);
-    initializeSchedule();
-    loadTimeSlots();
-    await loadSchedule();
-    setLoading(false);
+    if (!mechanicId) return;
+
+    try {
+      setLoading(true);
+      const sedes = await adminService.getMechanicWorkingSedes(mechanicId);
+      setWorkingSedes(sedes || []);
+
+      if (sedes.length > 0) {
+        const nextSede = selectedSedeId && sedes.some((item) => item.id === selectedSedeId)
+          ? selectedSedeId
+          : sedes[0].id;
+        setSelectedSedeId(nextSede);
+        await loadScheduleForSede(nextSede);
+      } else {
+        setSelectedSedeId(null);
+        const fallback = await adminService.getMechanicSchedule(mechanicId).catch(() => []);
+        const map = mapSchedules(fallback as any[]);
+        setSchedules(map);
+        setTimeSlots(map[selectedDay] || []);
+      }
+    } catch (error) {
+      console.error('Error loading schedule:', error);
+      Alert.alert('Error', 'No se pudo cargar el horario');
+    } finally {
+      setLoading(false);
+    }
   };
 
   useFocusEffect(
@@ -94,16 +115,30 @@ export default function AdminMechanicScheduleScreen() {
     }, [mechanicId])
   );
 
+  const onChangeDay = (dayId: number) => {
+    setSelectedDay(dayId);
+
+    const currentDaySlots = schedules[dayId] || [];
+    setTimeSlots(currentDaySlots);
+  };
+
+  const onChangeSede = async (sedeId: number) => {
+    setSelectedSedeId(sedeId);
+    await loadScheduleForSede(sedeId);
+  };
+
   const toggleSlot = (time: string) => {
-    setSchedules(prev => {
-      const currentSlots = prev[selectedDay] || [];
-      const newSlots = currentSlots.includes(time)
-        ? currentSlots.filter(t => t !== time)
-        : [...currentSlots, time].sort();
-      
+    if (isViewOnly) return;
+
+    setSchedules((prev) => {
+      const current = prev[selectedDay] || [];
+      const next = current.includes(time)
+        ? current.filter((item) => item !== time)
+        : uniqueSorted([...current, time]);
+
       return {
         ...prev,
-        [selectedDay]: newSlots
+        [selectedDay]: next,
       };
     });
   };
@@ -113,19 +148,16 @@ export default function AdminMechanicScheduleScreen() {
 
     try {
       setSaving(true);
-      
+
       const scheduleArray = Object.entries(schedules).map(([day, slots]) => ({
-        dayOfWeek: parseInt(day),
+        dayOfWeek: parseInt(day, 10),
         timeSlots: slots,
-        isActive: slots.length > 0
+        isActive: slots.length > 0,
       }));
 
       await adminService.updateMechanicSchedule(mechanicId, { schedules: scheduleArray });
-      Alert.alert('Éxito', 'Horario actualizado correctamente', [
-        { text: 'OK', onPress: () => router.back() }
-      ]);
+      Alert.alert('Éxito', 'Horario actualizado correctamente', [{ text: 'OK', onPress: () => router.back() }]);
     } catch (error: any) {
-      console.error('Error saving schedule:', error);
       Alert.alert('Error', error.message || 'No se pudo guardar el horario');
     } finally {
       setSaving(false);
@@ -143,72 +175,67 @@ export default function AdminMechanicScheduleScreen() {
   return (
     <Screen style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Horario: {mechanicName || 'Mecánico'}</Text>
+        <Text style={styles.title}>{isViewOnly ? 'Horario de' : 'Editar horario de'} {mechanicName || 'Mecánico'}</Text>
       </View>
+
+      {workingSedes.length > 0 && (
+        <View style={styles.sedesContainer}>
+          <Text style={styles.sedesLabel}>Sedes con horario</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {workingSedes.map((sede) => (
+              <TouchableOpacity
+                key={sede.id}
+                style={[styles.sedeChip, selectedSedeId === sede.id && styles.sedeChipActive]}
+                onPress={() => onChangeSede(sede.id)}
+              >
+                <Text style={[styles.sedeChipText, selectedSedeId === sede.id && styles.sedeChipTextActive]}>{sede.nombre}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
 
       <View style={styles.daysContainer}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          {DAYS.map(day => (
+          {DAYS.map((day) => (
             <TouchableOpacity
               key={day.id}
-              style={[
-                styles.dayButton,
-                selectedDay === day.id && styles.selectedDayButton
-              ]}
-              onPress={() => setSelectedDay(day.id)}
+              style={[styles.dayButton, selectedDay === day.id && styles.selectedDayButton]}
+              onPress={() => onChangeDay(day.id)}
             >
-              <Text style={[
-                styles.dayText,
-                selectedDay === day.id && styles.selectedDayText
-              ]}>
-                {day.name}
-              </Text>
-              {schedules[day.id]?.length > 0 && (
-                <View style={styles.dot} />
-              )}
+              <Text style={[styles.dayText, selectedDay === day.id && styles.selectedDayText]}>{day.name}</Text>
+              {(schedules[day.id] || []).length > 0 && <View style={styles.dot} />}
             </TouchableOpacity>
           ))}
         </ScrollView>
       </View>
 
       <ScrollView style={styles.slotsContainer}>
-        <Text style={styles.sectionTitle}>
-          {DAYS.find(d => d.id === selectedDay)?.name}
-        </Text>
-        <Text style={styles.subtitle}>Selecciona las horas disponibles</Text>
+        <Text style={styles.sectionTitle}>{DAYS.find((d) => d.id === selectedDay)?.name}</Text>
+        <Text style={styles.subtitle}>{isViewOnly ? 'Horario configurado' : 'Selecciona las horas disponibles'}</Text>
 
         <View style={styles.grid}>
-          {timeSlots.map(time => {
-            const isSelected = schedules[selectedDay]?.includes(time);
+          {timeSlots.map((time) => {
+            const isSelected = (schedules[selectedDay] || []).includes(time);
             return (
               <TouchableOpacity
                 key={time}
-                style={[
-                  styles.slot,
-                  isSelected && styles.selectedSlot
-                ]}
+                style={[styles.slot, isSelected && styles.selectedSlot]}
                 onPress={() => toggleSlot(time)}
+                disabled={isViewOnly}
               >
-                <Text style={[
-                  styles.slotText,
-                  isSelected && styles.selectedSlotText
-                ]}>
-                  {time}
-                </Text>
+                <Text style={[styles.slotText, isSelected && styles.selectedSlotText]}>{time}</Text>
               </TouchableOpacity>
             );
           })}
         </View>
       </ScrollView>
 
-      <View style={styles.footer}>
-        <Button
-          title="Guardar Cambios"
-          onPress={handleSave}
-          loading={saving}
-          style={styles.saveButton}
-        />
-      </View>
+      {!isViewOnly && (
+        <View style={styles.footer}>
+          <Button title="Guardar Cambios" onPress={handleSave} loading={saving} style={styles.saveButton} />
+        </View>
+      )}
     </Screen>
   );
 }
@@ -233,6 +260,41 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  sedesContainer: {
+    backgroundColor: '#FFF',
+    paddingHorizontal: 10,
+    paddingTop: 10,
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEEEEE',
+  },
+  sedesLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 8,
+    fontWeight: '600',
+  },
+  sedeChip: {
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    backgroundColor: '#FFF',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    marginRight: 8,
+  },
+  sedeChipActive: {
+    borderColor: '#007bff',
+    backgroundColor: '#E3F2FD',
+  },
+  sedeChipText: {
+    color: '#555',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  sedeChipTextActive: {
+    color: '#0D47A1',
   },
   daysContainer: {
     backgroundColor: '#FFF',

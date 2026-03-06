@@ -149,11 +149,29 @@ export default function MechanicLayout() {
           }}
         />
         <Tabs.Screen
+          name="my-autobox"
+          options={{
+            title: 'Mis Autobox',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="storefront-outline" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
           name="payments"
           options={{
             title: 'Mis Pagos',
             tabBarIcon: ({ color, size }) => (
               <Ionicons name="wallet" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="ratings"
+          options={{
+            title: 'Mis Calificaciones',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="star-outline" size={size} color={color} />
             ),
           }}
         />
@@ -169,6 +187,20 @@ export default function MechanicLayout() {
           options={{
             href: null, // Ocultar de la barra de pestañas
             title: 'Detalle Inspección',
+          }}
+        />
+        <Tabs.Screen
+          name="my-autobox-schedule"
+          options={{
+            href: null,
+            title: 'Seleccionar Horario',
+          }}
+        />
+        <Tabs.Screen
+          name="my-autobox-success"
+          options={{
+            href: null,
+            title: 'Horario Configurado',
           }}
         />
       </Tabs>
