@@ -42,6 +42,7 @@ export default function AdminMechanicScheduleScreen() {
 
   const [schedules, setSchedules] = useState<Record<number, string[]>>({});
   const [timeSlots, setTimeSlots] = useState<string[]>([]);
+  const [sedeScheduleMap, setSedeScheduleMap] = useState<Record<number, string[]>>({});
 
   const initializeMap = () => {
     const empty: Record<number, string[]> = {};
@@ -76,6 +77,7 @@ export default function AdminMechanicScheduleScreen() {
     setSchedules(map);
 
     const sedeMap = mapSchedules(sedeSchedule as any[]);
+    setSedeScheduleMap(sedeMap);
     const daySlots = uniqueSorted([...(sedeMap[selectedDay] || []), ...(map[selectedDay] || [])]);
     setTimeSlots(daySlots);
   };
@@ -117,9 +119,12 @@ export default function AdminMechanicScheduleScreen() {
 
   const onChangeDay = (dayId: number) => {
     setSelectedDay(dayId);
-
-    const currentDaySlots = schedules[dayId] || [];
-    setTimeSlots(currentDaySlots);
+    // Merge sede available slots with the mechanic's saved slots for the new day
+    const merged = uniqueSorted([
+      ...(sedeScheduleMap[dayId] || []),
+      ...(schedules[dayId] || []),
+    ]);
+    setTimeSlots(merged);
   };
 
   const onChangeSede = async (sedeId: number) => {
@@ -153,9 +158,10 @@ export default function AdminMechanicScheduleScreen() {
         dayOfWeek: parseInt(day, 10),
         timeSlots: slots,
         isActive: slots.length > 0,
+        ...(selectedSedeId ? { sedeId: selectedSedeId } : {}),
       }));
 
-      await adminService.updateMechanicSchedule(mechanicId, { schedules: scheduleArray });
+      await adminService.updateMechanicSchedule(mechanicId, { schedules: scheduleArray, sedeId: selectedSedeId ?? undefined });
       Alert.alert('Éxito', 'Horario actualizado correctamente', [{ text: 'OK', onPress: () => router.back() }]);
     } catch (error: any) {
       Alert.alert('Error', error.message || 'No se pudo guardar el horario');

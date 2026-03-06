@@ -51,10 +51,12 @@ export interface MechanicWorkingSede {
 }
 
 export interface UpdateScheduleDto {
+  sedeId?: number;
   schedules: {
     dayOfWeek: number;
     timeSlots: string[];
     isActive?: boolean;
+    sedeId?: number;
   }[];
 }
 
@@ -443,15 +445,15 @@ class AdminService {
     }
   }
 
-  async toggleMechanicStatus(id: string): Promise<Mechanic> {
+  async toggleMechanicStatus(id: string, currentStatus: 'active' | 'inactive'): Promise<Mechanic> {
+    // Use PATCH /admin/users/:id/status — the toggle-status endpoint does not exist.
+    const newEstado = currentStatus === 'active' ? 'inactivo' : 'activo';
     try {
-      console.log('📡 Llamando a toggle status para mecánico:', id);
-      console.log('📍 URL:', `${API_URL}/admin/mechanics/${id}/toggle-status`);
-
       const headers = await this.getHeaders();
-      const response = await fetch(`${API_URL}/admin/mechanics/${id}/toggle-status`, {
+      const response = await fetch(`${API_URL}/admin/users/${id}/status`, {
         method: 'PATCH',
         headers,
+        body: JSON.stringify({ estado: newEstado }),
       });
 
       console.log('📥 Respuesta del servidor:', response.status, response.statusText);
@@ -544,9 +546,9 @@ class AdminService {
   }
 
   async getMechanicWorkingSedes(mechanicId: string): Promise<MechanicWorkingSede[]> {
+    // GET /mechanics/:id/sedes is the canonical endpoint (mechanics.controller.ts)
     const endpoints = [
-      `${API_URL}/admin/mechanics/${mechanicId}/working-sedes`,
-      `${API_URL}/admin/mechanics/${mechanicId}/sedes`,
+      `${API_URL}/mechanics/${mechanicId}/sedes`,
     ];
 
     const headers = await this.getHeaders();
@@ -574,9 +576,9 @@ class AdminService {
   }
 
   async getMechanicScheduleBySede(mechanicId: string, sedeId: number): Promise<MechanicSchedule[]> {
+    // GET /mechanics/:id/schedule returns items with sedeId field; filter client-side.
     const endpoints = [
-      `${API_URL}/admin/mechanics/${mechanicId}/schedule?sedeId=${sedeId}`,
-      `${API_URL}/admin/mechanics/${mechanicId}/schedule/${sedeId}`,
+      `${API_URL}/mechanics/${mechanicId}/schedule`,
       `${API_URL}/admin/mechanics/${mechanicId}/schedule`,
     ];
 
@@ -622,54 +624,37 @@ class AdminService {
     }
   }
 
-  async blockMechanicFromSede(mechanicId: string, sedeId: number): Promise<void> {
-    const endpoints = [
-      `${API_URL}/admin/mechanics/${mechanicId}/block-sede`,
-      `${API_URL}/admin/mechanics/${mechanicId}/blocked-sedes`,
-    ];
-
+  async blockMechanicFromSede(mechanicId: string, sedeId: number, reason?: string): Promise<void> {
+    // POST /mechanics/:id/sedes/:sedeId/admin-block (mechanics.controller.ts)
     const headers = await this.getHeaders();
-    for (const endpoint of endpoints) {
-      try {
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ sedeId }),
-        });
+    const response = await fetch(
+      `${API_URL}/mechanics/${mechanicId}/sedes/${sedeId}/admin-block`,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ reason }),
+      },
+    );
 
-        if (!response.ok) continue;
-        return;
-      } catch (_error) {
-        // Try next endpoint.
-      }
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || 'No se pudo bloquear al mecánico de la sede seleccionada');
     }
-
-    throw new Error('No se pudo bloquear al mecánico de la sede seleccionada');
   }
 
   async changeMechanicSede(mechanicId: string, sedeId: number): Promise<void> {
-    const endpoints = [
-      `${API_URL}/admin/mechanics/${mechanicId}/change-sede`,
-      `${API_URL}/admin/mechanics/${mechanicId}/working-sedes`,
-    ];
-
+    // PUT /mechanics/:id/sede (mechanics.controller.ts)
     const headers = await this.getHeaders();
-    for (const endpoint of endpoints) {
-      try {
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ sedeId }),
-        });
+    const response = await fetch(`${API_URL}/mechanics/${mechanicId}/sede`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ sedeId }),
+    });
 
-        if (!response.ok) continue;
-        return;
-      } catch (_error) {
-        // Try next endpoint.
-      }
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || 'No se pudo cambiar la sede del mecánico');
     }
-
-    throw new Error('No se pudo cambiar la sede del mecánico');
   }
 
   // ==================== SEDES ====================

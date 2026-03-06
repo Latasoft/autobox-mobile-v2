@@ -69,30 +69,8 @@ class MechanicSedeService {
   }
 
   async getSedesWithActiveSchedule(): Promise<MechanicWorkingSede[]> {
-    const endpoints = [
-      '/mechanics/sedes/with-active-schedule',
-      '/mechanics/sedes/available',
-      '/mechanics/sedes',
-    ];
-
-    for (const endpoint of endpoints) {
-      try {
-        const response = await apiService.get(endpoint);
-        if (Array.isArray(response)) {
-          const normalized = response
-            .map(normalizeSede)
-            .filter((item): item is MechanicWorkingSede => Boolean(item))
-            .filter((item) => item.hasActiveSchedule !== false);
-
-          if (normalized.length > 0) {
-            return normalized;
-          }
-        }
-      } catch (_error) {
-        // Try next endpoint.
-      }
-    }
-
+    // No dedicated with-active-schedule endpoint exists; fall through to the
+    // admin sedes list and filter by checking each sede's schedule.
     const sedes = await adminService.getSedes().catch(() => []);
     const withSchedule = await Promise.all(
       sedes.map(async (sede: any) => {
@@ -112,24 +90,16 @@ class MechanicSedeService {
   async getMyWorkingSedes(): Promise<MechanicWorkingSede[]> {
     const mechanicId = await this.getCurrentMechanicId();
 
-    const endpoints = [
-      `/mechanics/${mechanicId}/working-sedes`,
-      '/mechanics/me/working-sedes',
-      `/mechanics/${mechanicId}/sedes`,
-      '/mechanics/me/sedes',
-    ];
-
-    for (const endpoint of endpoints) {
-      try {
-        const response = await apiService.get(endpoint);
-        if (Array.isArray(response)) {
-          return response
-            .map(normalizeSede)
-            .filter((item): item is MechanicWorkingSede => Boolean(item));
-        }
-      } catch (_error) {
-        // Try next endpoint.
+    // GET /mechanics/:id/sedes is the only valid endpoint (mechanics.controller.ts)
+    try {
+      const response = await apiService.get(`/mechanics/${mechanicId}/sedes`);
+      if (Array.isArray(response)) {
+        return response
+          .map(normalizeSede)
+          .filter((item): item is MechanicWorkingSede => Boolean(item));
       }
+    } catch (_error) {
+      // Endpoint unreachable.
     }
 
     return [];
@@ -137,22 +107,16 @@ class MechanicSedeService {
 
   async getBlockedSedes(mechanicId?: string): Promise<number[]> {
     const resolvedMechanicId = mechanicId || (await this.getCurrentMechanicId());
-    const endpoints = [
-      `/mechanics/${resolvedMechanicId}/blocked-sedes`,
-      '/mechanics/me/blocked-sedes',
-    ];
 
-    for (const endpoint of endpoints) {
-      try {
-        const response = await apiService.get(endpoint);
-        if (Array.isArray(response)) {
-          return response
-            .map((item: any) => parseNumber(item?.id ?? item?.sedeId ?? item))
-            .filter((item: number | undefined): item is number => Boolean(item));
-        }
-      } catch (_error) {
-        // Try next endpoint.
+    try {
+      const response = await apiService.get(`/mechanics/${resolvedMechanicId}/blocked-sedes`);
+      if (Array.isArray(response)) {
+        return response
+          .map((item: any) => parseNumber(item?.sedeId ?? item?.id ?? item))
+          .filter((item: number | undefined): item is number => Boolean(item));
       }
+    } catch (_error) {
+      // Endpoint unreachable.
     }
 
     return [];
@@ -160,9 +124,8 @@ class MechanicSedeService {
 
   async getSedeSchedule(sedeId: number): Promise<DaySchedule[]> {
     const endpoints = [
-      `/mechanics/sede-schedule/${sedeId}`,
-      `/sedes/${sedeId}/schedule`,
-      `/admin/sedes/${sedeId}/schedule`,
+      `/mechanics/sede-schedule/${sedeId}`,   // GET mechanics/sede-schedule/:id ✓
+      `/admin/sedes/${sedeId}/schedule`,       // GET admin/sedes/:id/schedule ✓
     ];
 
     for (const endpoint of endpoints) {
@@ -185,9 +148,10 @@ class MechanicSedeService {
   }
 
   async getMechanicScheduleBySede(mechanicId: string, sedeId: number): Promise<DaySchedule[]> {
+    // GET /mechanics/:id/schedule returns all seats; filter by sedeId client-side.
+    // The ?sedeId query param is passed for forward-compatibility but currently ignored by the backend.
     const endpoints = [
       `/mechanics/${mechanicId}/schedule?sedeId=${sedeId}`,
-      `/mechanics/${mechanicId}/schedule/${sedeId}`,
       `/mechanics/${mechanicId}/schedule`,
     ];
 
@@ -245,40 +209,22 @@ class MechanicSedeService {
   }
 
   async assignSedeToMechanic(mechanicId: string, sedeId: number) {
-    const payload = { sedeId };
-    const endpoints = [
-      `/mechanics/${mechanicId}/working-sedes`,
-      '/mechanics/me/working-sedes',
-      `/mechanics/${mechanicId}/change-sede`,
-      '/mechanics/me/change-sede',
-    ];
-
-    for (const endpoint of endpoints) {
-      try {
-        return await apiService.post(endpoint, payload);
-      } catch (_error) {
-        // Try next endpoint.
-      }
+    // PUT /mechanics/:id/sede is the canonical endpoint (mechanics.controller.ts)
+    const headers = { 'Content-Type': 'application/json' };
+    try {
+      return await apiService.put(`/mechanics/${mechanicId}/sede`, { sedeId });
+    } catch (_error) {
+      throw new Error('No se pudo asignar la sede seleccionada');
     }
-
-    throw new Error('No se pudo asignar la sede seleccionada');
   }
 
   async validateSedeChange(mechanicId: string, sedeId: number): Promise<{ allowed: boolean; message?: string }> {
-    const endpoints = [
-      `/mechanics/${mechanicId}/validate-sede-change`,
-      '/mechanics/me/validate-sede-change',
-    ];
-
-    for (const endpoint of endpoints) {
-      try {
-        const response = await apiService.post(endpoint, { sedeId });
-        if (typeof response?.allowed === 'boolean') {
-          return response;
-        }
-      } catch (_error) {
-        // Try next endpoint.
-      }
+    // No dedicated validate-sede-change endpoint exists in the backend.
+    // The real validation happens server-side when PUT /mechanics/:id/sede is called.
+    // Here we do a lightweight pre-check: confirm the sede is not blocked for this mechanic.
+    const blockedIds = await this.getBlockedSedes(mechanicId).catch(() => []);
+    if (blockedIds.includes(sedeId)) {
+      return { allowed: false, message: 'Esta sede está bloqueada para ti.' };
     }
 
     return { allowed: true };
@@ -306,22 +252,29 @@ class MechanicSedeService {
     const mechanicId = await this.getCurrentMechanicId();
     const endpoints = [
       `/mechanics/${mechanicId}/ratings`,
-      '/mechanics/me/ratings',
     ];
 
     for (const endpoint of endpoints) {
       try {
         const response = await apiService.get(endpoint);
-        if (Array.isArray(response)) {
-          return response.map((item: any) => ({
+
+        // Backend getRatingsHistory returns { mechanicId, mechanicName, averageRating, totalRatings, ratings: [...] }
+        const rawList: any[] = Array.isArray(response)
+          ? response
+          : Array.isArray(response?.ratings)
+          ? response.ratings
+          : null;
+
+        if (rawList) {
+          return rawList.map((item: any) => ({
             inspectionId: String(item.inspectionId ?? item.inspection?.id ?? item.id),
             rating: Number(item.rating ?? item.calificacion ?? 0),
             comment: item.comment ?? item.comentario,
-            createdAt: String(item.createdAt ?? item.fechaCreacion ?? new Date().toISOString()),
+            createdAt: String(item.createdAt ?? item.date ?? item.fechaCreacion ?? new Date().toISOString()),
             sedeId: parseNumber(item.sedeId ?? item.sede?.id),
             sedeNombre: item.sede?.nombre ?? item.sedeNombre,
-            userName: item.userName ?? item.usuarioNombre,
-            vehiclePatent: item.vehiclePatent ?? item.vehiculoPatente,
+            userName: item.userName ?? item.clientName ?? item.usuarioNombre,
+            vehiclePatent: item.vehiclePatent ?? item.vehiculoPatente ?? item.publicacion?.vehiculo?.patente,
           }));
         }
       } catch (_error) {
