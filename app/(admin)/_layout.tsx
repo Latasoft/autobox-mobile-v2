@@ -21,6 +21,7 @@ import { UserRole } from '../../types';
 
 function AdminTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
+  const bottomInset = Platform.OS === 'android' ? Math.max(insets.bottom, 12) : insets.bottom;
   
   // List of routes that should not appear in the TabBar
   const hiddenRoutes = [
@@ -34,7 +35,7 @@ function AdminTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   ];
 
   return (
-    <View style={[styles.tabBarContainer, { paddingBottom: insets.bottom }]}>
+    <View style={[styles.tabBarContainer, { paddingBottom: bottomInset }]}>
       <ScrollView 
         horizontal 
         showsHorizontalScrollIndicator={false}

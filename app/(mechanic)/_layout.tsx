@@ -13,11 +13,13 @@ import { useEffect, useState, useCallback } from 'react';
 import authService from '../../services/authService';
 import socketService from '../../services/socketService';
 import apiService from '../../services/apiService';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 
 export default function MechanicLayout() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const bottomInset = Platform.OS === 'android' ? Math.max(insets.bottom, 12) : insets.bottom;
   const [notificationCount, setNotificationCount] = useState(0);
 
   const fetchUnreadNotifications = async () => {
@@ -111,6 +113,11 @@ export default function MechanicLayout() {
           },
           tabBarActiveTintColor: '#FF9800',
           tabBarInactiveTintColor: 'gray',
+          tabBarStyle: {
+            height: 60 + bottomInset,
+            paddingBottom: bottomInset + 4,
+            paddingTop: 8,
+          },
           headerRight: () => (
             <View style={styles.headerIcons}>
               <TouchableOpacity style={styles.headerIcon} onPress={handleNotificationsPress}>

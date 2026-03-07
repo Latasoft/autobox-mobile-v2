@@ -1,8 +1,9 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, Dimensions, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Image, Dimensions, TouchableOpacity, Alert, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../components/ui/Screen';
 import { Button } from '../components/ui/Button';
 import { ShareModal } from '../components/ShareModal';
@@ -15,6 +16,8 @@ const { width } = Dimensions.get('window');
 export default function VehicleDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const insets = useSafeAreaInsets();
+  const bottomInset = Platform.OS === 'android' ? Math.max(insets.bottom, 12) : insets.bottom;
   
   if (!params) {
     console.error('❌ [VehicleDetailScreen] params is null');
@@ -156,7 +159,7 @@ export default function VehicleDetailScreen() {
           </View>
         </View>
 
-        <View style={styles.content}>
+        <View style={[styles.content, { paddingBottom: 180 + bottomInset }]}>
           {(vehicle.estado === 'blocked' || vehicle.status === 'blocked') && (
             <View style={styles.blockedBanner}>
               <Ionicons name="alert-circle" size={24} color="#FFF" style={{ marginRight: 8 }} />
@@ -195,7 +198,7 @@ export default function VehicleDetailScreen() {
         </View>
       </ScrollView>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: 16 + bottomInset }]}>
         {isOwner ? (
           (vehicle.estado === 'blocked' || vehicle.status === 'blocked') ? (
             <>

@@ -10,7 +10,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { HeaderProvider, useHeader } from '../../contexts/HeaderContext';
 import { ChatProvider, useChat } from '../../contexts/ChatContext';
-import { useEffect, useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import apiService from '../../services/apiService';
 import { useFocusEffect } from 'expo-router';
 
@@ -18,6 +18,7 @@ function TabsContent() {
   const router = useRouter();
   const segments = useSegments();
   const insets = useSafeAreaInsets();
+  const bottomInset = Platform.OS === 'android' ? Math.max(insets.bottom, 12) : insets.bottom;
   const { isHeaderVisible } = useHeader();
   const { unreadMessagesCount } = useChat();
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
@@ -88,8 +89,8 @@ function TabsContent() {
             backgroundColor: '#FFFFFF',
             borderTopWidth: 1,
             borderTopColor: '#E0E0E0',
-            height: 60 + insets.bottom,
-            paddingBottom: insets.bottom + 5,
+            height: 60 + bottomInset,
+            paddingBottom: bottomInset + 5,
             paddingTop: 10,
           },
           tabBarActiveTintColor: '#4CAF50',
