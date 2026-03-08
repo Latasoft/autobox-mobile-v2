@@ -100,8 +100,8 @@ export default function AdminMechanicScheduleScreen() {
     return Array.from(byId.values());
   };
 
-  const hasAnyScheduleInSede = (sedeId: number) => {
-    return allSchedules.some((item: any) => {
+  const hasAnyScheduleInSede = (sedeId: number, sourceSchedules: MechanicSchedule[] = allSchedules) => {
+    return sourceSchedules.some((item: any) => {
       const itemSedeId = getSedeIdFromSchedule(item);
       return itemSedeId === sedeId && item.isActive && Array.isArray(item.timeSlots) && item.timeSlots.length > 0;
     });
@@ -139,19 +139,23 @@ export default function AdminMechanicScheduleScreen() {
       setAllSchedules(normalizedSchedules);
 
       const resolvedSedes = hydrateSedesFromSchedules(normalizedSchedules, workingSedes || []);
-      const sedesWithSchedule = resolvedSedes.filter((sede) => hasAnyScheduleInSede(sede.id));
-      setAvailableSedes(sedesWithSchedule);
+      const sedesWithSchedule = resolvedSedes.filter((sede) => hasAnyScheduleInSede(sede.id, normalizedSchedules));
 
-      if (sedesWithSchedule.length === 0) {
+      // Admin must be able to inspect and edit all assigned sedes, even if they currently
+      // have no active blocks. Keep the schedule-only subset only as a fallback.
+      const sedesForSelection = resolvedSedes.length > 0 ? resolvedSedes : sedesWithSchedule;
+      setAvailableSedes(sedesForSelection);
+
+      if (sedesForSelection.length === 0) {
         setSelectedSedeId(null);
         setCurrentSchedulesMap(emptyMap());
         setSedeSlotsMap(emptyMap());
         return;
       }
 
-      const nextSedeId = selectedSedeId && sedesWithSchedule.some((item) => item.id === selectedSedeId)
+      const nextSedeId = selectedSedeId && sedesForSelection.some((item) => item.id === selectedSedeId)
         ? selectedSedeId
-        : sedesWithSchedule[0].id;
+        : sedesForSelection[0].id;
 
       setSelectedSedeId(nextSedeId);
       await loadSedeView(nextSedeId, normalizedSchedules);
