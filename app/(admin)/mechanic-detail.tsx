@@ -234,14 +234,24 @@ export default function MechanicDetailScreen() {
       params: {
         id: mechanic.id,
         name: `${mechanic.firstName} ${mechanic.lastName}`,
-        viewOnly: 'true',
       },
     });
   };
 
-  const openSedeActionModal = (type: 'block' | 'change') => {
+  const openSedeActionModal = async (type: 'block' | 'change') => {
     setSedeActionType(type);
-    setSelectedSedeId('');
+    if (type === 'change' && mechanic) {
+      const directId = (mechanic as any)?.sedeId ?? (mechanic as any)?.sede?.id;
+      if (directId) {
+        setSelectedSedeId(String(directId));
+      } else {
+        const currentName = String((mechanic as any)?.sede?.nombre || (mechanic as any)?.module || '').trim().toLowerCase();
+        const matched = sedes.find((sede) => sede.nombre.trim().toLowerCase() === currentName);
+        setSelectedSedeId(matched ? String(matched.id) : '');
+      }
+    } else {
+      setSelectedSedeId('');
+    }
     setShowSedeModal(true);
   };
 

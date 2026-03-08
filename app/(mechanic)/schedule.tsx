@@ -8,10 +8,11 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Screen } from '../../components/ui/Screen';
 import { Button } from '../../components/ui/Button';
 import mechanicSedeService, { MechanicWorkingSede } from '../../services/mechanicSedeService';
+import { Select } from '../../components/ui/Select';
 
 const DAYS = [
   { id: 1, name: 'Lunes' },
@@ -27,6 +28,7 @@ const uniqueSorted = (values: string[]) => Array.from(new Set(values)).sort();
 
 export default function MechanicScheduleScreen() {
   const router = useRouter();
+  const routeParams = useLocalSearchParams();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -77,8 +79,11 @@ export default function MechanicScheduleScreen() {
       setWorkingSedes(sedes);
 
       if (sedes.length > 0) {
+        const preselectedFromRoute = Number(Array.isArray(routeParams.sedeId) ? routeParams.sedeId[0] : routeParams.sedeId);
         const nextSedeId = selectedSedeId && sedes.some((s) => s.id === selectedSedeId)
           ? selectedSedeId
+          : Number.isFinite(preselectedFromRoute) && sedes.some((s) => s.id === preselectedFromRoute)
+          ? preselectedFromRoute
           : sedes[0].id;
         setSelectedSedeId(nextSedeId);
         await loadSedeScheduleState(currentMechanicId, nextSedeId);
@@ -162,7 +167,7 @@ export default function MechanicScheduleScreen() {
         <Text style={styles.emptyTitle}>Aún no tienes sedes seleccionadas</Text>
         <Text style={styles.emptySubtitle}>Configura tu primer Autobox para habilitar la agenda.</Text>
         <Button
-          title="IR A MIS AUTOBOX"
+          title="IR A SELECCIONAR SEDES"
           onPress={() => router.push('/(mechanic)/my-autobox')}
           style={styles.goAutoboxButton}
         />
@@ -173,18 +178,13 @@ export default function MechanicScheduleScreen() {
   return (
     <Screen style={styles.container}>
       <View style={styles.sedeSection}>
-        <Text style={styles.sedeLabel}>Sedes con horario</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          {workingSedes.map((sede) => (
-            <TouchableOpacity
-              key={sede.id}
-              style={[styles.sedeChip, selectedSedeId === sede.id && styles.sedeChipActive]}
-              onPress={() => setSelectedSedeId(sede.id)}
-            >
-              <Text style={[styles.sedeChipText, selectedSedeId === sede.id && styles.sedeChipTextActive]}>{sede.nombre}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+        <Select
+          label="Sede con horario"
+          value={selectedSedeId ? String(selectedSedeId) : ''}
+          onChange={(value) => setSelectedSedeId(Number(value))}
+          options={workingSedes.map((sede) => ({ label: sede.nombre, value: String(sede.id) }))}
+          placeholder="Seleccionar sede"
+        />
       </View>
 
       <View style={styles.daysContainer}>
@@ -247,33 +247,6 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: '#EEE',
-  },
-  sedeLabel: {
-    fontSize: 12,
-    color: '#777',
-    marginBottom: 8,
-    fontWeight: '600',
-  },
-  sedeChip: {
-    marginRight: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    backgroundColor: '#FFF',
-  },
-  sedeChipActive: {
-    borderColor: '#FF9800',
-    backgroundColor: '#FFF3E0',
-  },
-  sedeChipText: {
-    fontSize: 12,
-    color: '#555',
-    fontWeight: '600',
-  },
-  sedeChipTextActive: {
-    color: '#E65100',
   },
   daysContainer: {
     backgroundColor: '#FFF',

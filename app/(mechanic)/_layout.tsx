@@ -158,6 +158,15 @@ export default function MechanicLayout() {
         <Tabs.Screen
           name="my-autobox"
           options={{
+            title: 'Seleccionar sedes',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="clipboard-outline" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="my-autobox-list"
+          options={{
             title: 'Mis Autobox',
             tabBarIcon: ({ color, size }) => (
               <Ionicons name="storefront-outline" size={size} color={color} />

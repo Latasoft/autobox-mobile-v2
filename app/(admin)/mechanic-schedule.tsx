@@ -1,18 +1,18 @@
-import React, { useState, useCallback } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Alert,
   ActivityIndicator,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import adminService, { MechanicWorkingSede } from '../../services/adminService';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import adminService, { MechanicWorkingSede, MechanicSchedule } from '../../services/adminService';
 import { Screen } from '../../components/ui/Screen';
 import { Button } from '../../components/ui/Button';
-import { useFocusEffect } from '@react-navigation/native';
+import { Select } from '../../components/ui/Select';
 
 const DAYS = [
   { id: 1, name: 'Lunes' },
@@ -24,62 +24,113 @@ const DAYS = [
   { id: 7, name: 'Domingo' },
 ];
 
-const uniqueSorted = (slots: string[]) => Array.from(new Set(slots)).sort();
+const toMinutes = (time: string) => {
+  const [h, m] = time.split(':').map(Number);
+  return h * 60 + m;
+};
+
+const uniqueSorted = (slots: string[]) => Array.from(new Set(slots)).sort((a, b) => toMinutes(a) - toMinutes(b));
+
+const emptyMap = () => {
+  const map: Record<number, string[]> = {};
+  DAYS.forEach((day) => {
+    map[day.id] = [];
+  });
+  return map;
+};
+
+const mapSchedules = (data: any[]) => {
+  const map = emptyMap();
+  data.forEach((item: any) => {
+    if (item?.isActive) {
+      const day = Number(item.dayOfWeek);
+      map[day] = uniqueSorted([...(map[day] || []), ...((item.timeSlots as string[]) || [])]);
+    }
+  });
+  return map;
+};
+
+const fallbackThirtyMinuteBlocks = () => {
+  const blocks: string[] = [];
+  for (let hour = 8; hour <= 21; hour += 1) {
+    blocks.push(`${String(hour).padStart(2, '0')}:00`);
+    blocks.push(`${String(hour).padStart(2, '0')}:30`);
+  }
+  return blocks;
+};
 
 export default function AdminMechanicScheduleScreen() {
   const router = useRouter();
-  const { id, name, viewOnly } = useLocalSearchParams();
+  const { id, name } = useLocalSearchParams();
   const mechanicId = Array.isArray(id) ? id[0] : id;
   const mechanicName = Array.isArray(name) ? name[0] : name;
-  const isViewOnly = String(Array.isArray(viewOnly) ? viewOnly[0] : viewOnly || '').toLowerCase() === 'true';
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [selectedDay, setSelectedDay] = useState<number>(1);
 
-  const [workingSedes, setWorkingSedes] = useState<MechanicWorkingSede[]>([]);
+  const [selectedDay, setSelectedDay] = useState<number>(1);
+  const [allSchedules, setAllSchedules] = useState<MechanicSchedule[]>([]);
+
+  const [availableSedes, setAvailableSedes] = useState<MechanicWorkingSede[]>([]);
   const [selectedSedeId, setSelectedSedeId] = useState<number | null>(null);
 
-  const [schedules, setSchedules] = useState<Record<number, string[]>>({});
-  const [timeSlots, setTimeSlots] = useState<string[]>([]);
-  const [sedeScheduleMap, setSedeScheduleMap] = useState<Record<number, string[]>>({});
+  const [currentSchedulesMap, setCurrentSchedulesMap] = useState<Record<number, string[]>>(emptyMap());
+  const [sedeSlotsMap, setSedeSlotsMap] = useState<Record<number, string[]>>(emptyMap());
 
-  const initializeMap = () => {
-    const empty: Record<number, string[]> = {};
-    DAYS.forEach((day) => {
-      empty[day.id] = [];
-    });
-    return empty;
-  };
+  const getSedeIdFromSchedule = (item: any) => Number(item?.sedeId ?? item?.sede?.id);
 
-  const mapSchedules = (data: any[]) => {
-    const map = initializeMap();
+  const hydrateSedesFromSchedules = (schedules: MechanicSchedule[], existing: MechanicWorkingSede[]) => {
+    const byId = new Map<number, MechanicWorkingSede>();
+    existing.forEach((sede) => byId.set(sede.id, sede));
 
-    data.forEach((item: any) => {
-      if (item.isActive) {
-        const existing = map[item.dayOfWeek] || [];
-        map[item.dayOfWeek] = uniqueSorted([...(existing || []), ...(item.timeSlots || [])]);
+    schedules.forEach((item: any) => {
+      const sedeId = getSedeIdFromSchedule(item);
+      if (!Number.isFinite(sedeId)) return;
+      if (!byId.has(sedeId)) {
+        byId.set(sedeId, {
+          id: sedeId,
+          nombre: item?.sede?.nombre || `Autobox ${sedeId}`,
+          direccion: item?.sede?.direccion,
+        });
       }
     });
 
-    return map;
+    return Array.from(byId.values());
   };
 
-  const loadScheduleForSede = async (sedeId: number) => {
-    if (!mechanicId) return;
+  const hasAnyScheduleInSede = (sedeId: number) => {
+    return allSchedules.some((item: any) => {
+      const itemSedeId = getSedeIdFromSchedule(item);
+      return itemSedeId === sedeId && item.isActive && Array.isArray(item.timeSlots) && item.timeSlots.length > 0;
+    });
+  };
 
-    const [mechanicSchedule, sedeSchedule] = await Promise.all([
-      adminService.getMechanicScheduleBySede(mechanicId, sedeId).catch(() => []),
-      adminService.getSedeSchedule(sedeId).catch(() => []),
-    ]);
+  const loadSedeView = async (sedeId: number, sourceSchedules?: MechanicSchedule[]) => {
+    const source = sourceSchedules || allSchedules;
 
-    const map = mapSchedules(mechanicSchedule as any[]);
-    setSchedules(map);
+    const mechanicForSede = source.filter((item: any) => {
+      const itemSedeId = getSedeIdFromSchedule(item);
+      return itemSedeId === sedeId;
+    });
 
-    const sedeMap = mapSchedules(sedeSchedule as any[]);
-    setSedeScheduleMap(sedeMap);
-    const daySlots = uniqueSorted([...(sedeMap[selectedDay] || []), ...(map[selectedDay] || [])]);
-    setTimeSlots(daySlots);
+    const mechanicMap = mapSchedules(mechanicForSede);
+    setCurrentSchedulesMap(mechanicMap);
+
+    const sedeScheduleRaw = await adminService.getSedeSchedule(sedeId).catch(() => []);
+    const sedeMap = mapSchedules(Array.isArray(sedeScheduleRaw) ? sedeScheduleRaw : []);
+
+    // If sede has no configured slots, keep default 30-min blocks editable.
+    if (Object.values(sedeMap).every((slots) => slots.length === 0)) {
+      const defaults = fallbackThirtyMinuteBlocks();
+      const map = emptyMap();
+      DAYS.forEach((day) => {
+        map[day.id] = defaults;
+      });
+      setSedeSlotsMap(map);
+      return;
+    }
+
+    setSedeSlotsMap(sedeMap);
   };
 
   const init = async () => {
@@ -87,25 +138,40 @@ export default function AdminMechanicScheduleScreen() {
 
     try {
       setLoading(true);
-      const sedes = await adminService.getMechanicWorkingSedes(mechanicId);
-      setWorkingSedes(sedes || []);
 
-      if (sedes.length > 0) {
-        const nextSede = selectedSedeId && sedes.some((item) => item.id === selectedSedeId)
-          ? selectedSedeId
-          : sedes[0].id;
-        setSelectedSedeId(nextSede);
-        await loadScheduleForSede(nextSede);
-      } else {
+      const [workingSedes, mechanicSchedules] = await Promise.all([
+        adminService.getMechanicWorkingSedes(mechanicId).catch(() => []),
+        adminService.getMechanicSchedule(mechanicId).catch(() => []),
+      ]);
+
+      const normalizedSchedules = Array.isArray(mechanicSchedules) ? mechanicSchedules : [];
+      setAllSchedules(normalizedSchedules);
+
+      const resolvedSedes = hydrateSedesFromSchedules(normalizedSchedules, workingSedes || []);
+      const sedesWithSchedule = resolvedSedes.filter((sede) => hasAnyScheduleInSede(sede.id));
+      setAvailableSedes(sedesWithSchedule);
+
+      if (sedesWithSchedule.length === 0) {
         setSelectedSedeId(null);
-        const fallback = await adminService.getMechanicSchedule(mechanicId).catch(() => []);
-        const map = mapSchedules(fallback as any[]);
-        setSchedules(map);
-        setTimeSlots(map[selectedDay] || []);
+        setCurrentSchedulesMap(emptyMap());
+        const defaultMap = emptyMap();
+        const defaults = fallbackThirtyMinuteBlocks();
+        DAYS.forEach((day) => {
+          defaultMap[day.id] = defaults;
+        });
+        setSedeSlotsMap(defaultMap);
+        return;
       }
+
+      const nextSedeId = selectedSedeId && sedesWithSchedule.some((item) => item.id === selectedSedeId)
+        ? selectedSedeId
+        : sedesWithSchedule[0].id;
+
+      setSelectedSedeId(nextSedeId);
+      await loadSedeView(nextSedeId, normalizedSchedules);
     } catch (error) {
-      console.error('Error loading schedule:', error);
-      Alert.alert('Error', 'No se pudo cargar el horario');
+      console.error('Error loading mechanic schedule:', error);
+      Alert.alert('Error', 'No se pudo cargar el horario del mecánico.');
     } finally {
       setLoading(false);
     }
@@ -117,25 +183,24 @@ export default function AdminMechanicScheduleScreen() {
     }, [mechanicId])
   );
 
-  const onChangeDay = (dayId: number) => {
-    setSelectedDay(dayId);
-    // Merge sede available slots with the mechanic's saved slots for the new day
-    const merged = uniqueSorted([
-      ...(sedeScheduleMap[dayId] || []),
-      ...(schedules[dayId] || []),
-    ]);
-    setTimeSlots(merged);
-  };
+  const displayedSlots = useMemo(() => {
+    const base = sedeSlotsMap[selectedDay] || [];
+    const selected = currentSchedulesMap[selectedDay] || [];
+    const merged = uniqueSorted([...base, ...selected]);
 
-  const onChangeSede = async (sedeId: number) => {
+    if (merged.length > 0) return merged;
+    return fallbackThirtyMinuteBlocks();
+  }, [selectedDay, sedeSlotsMap, currentSchedulesMap]);
+
+  const handleSedeChange = async (value: string) => {
+    const sedeId = Number(value);
+    if (!Number.isFinite(sedeId)) return;
     setSelectedSedeId(sedeId);
-    await loadScheduleForSede(sedeId);
+    await loadSedeView(sedeId);
   };
 
   const toggleSlot = (time: string) => {
-    if (isViewOnly) return;
-
-    setSchedules((prev) => {
+    setCurrentSchedulesMap((prev) => {
       const current = prev[selectedDay] || [];
       const next = current.includes(time)
         ? current.filter((item) => item !== time)
@@ -149,22 +214,22 @@ export default function AdminMechanicScheduleScreen() {
   };
 
   const handleSave = async () => {
-    if (!mechanicId) return;
+    if (!mechanicId || !selectedSedeId) return;
 
     try {
       setSaving(true);
-
-      const scheduleArray = Object.entries(schedules).map(([day, slots]) => ({
-        dayOfWeek: parseInt(day, 10),
-        timeSlots: slots,
-        isActive: slots.length > 0,
-        ...(selectedSedeId ? { sedeId: selectedSedeId } : {}),
+      const payload = DAYS.map((day) => ({
+        dayOfWeek: day.id,
+        timeSlots: currentSchedulesMap[day.id] || [],
+        isActive: (currentSchedulesMap[day.id] || []).length > 0,
+        sedeId: selectedSedeId,
       }));
 
-      await adminService.updateMechanicSchedule(mechanicId, { schedules: scheduleArray, sedeId: selectedSedeId ?? undefined });
-      Alert.alert('Éxito', 'Horario actualizado correctamente', [{ text: 'OK', onPress: () => router.back() }]);
+      await adminService.updateMechanicSchedule(mechanicId, { sedeId: selectedSedeId, schedules: payload });
+      Alert.alert('Éxito', 'Horario actualizado correctamente.');
+      await init();
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'No se pudo guardar el horario');
+      Alert.alert('Error', error?.message || 'No se pudo guardar el horario');
     } finally {
       setSaving(false);
     }
@@ -181,25 +246,22 @@ export default function AdminMechanicScheduleScreen() {
   return (
     <Screen style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>{isViewOnly ? 'Horario de' : 'Editar horario de'} {mechanicName || 'Mecánico'}</Text>
+        <Text style={styles.title}>Horario de {mechanicName || 'Mecánico'}</Text>
       </View>
 
-      {workingSedes.length > 0 && (
-        <View style={styles.sedesContainer}>
-          <Text style={styles.sedesLabel}>Sedes con horario</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {workingSedes.map((sede) => (
-              <TouchableOpacity
-                key={sede.id}
-                style={[styles.sedeChip, selectedSedeId === sede.id && styles.sedeChipActive]}
-                onPress={() => onChangeSede(sede.id)}
-              >
-                <Text style={[styles.sedeChipText, selectedSedeId === sede.id && styles.sedeChipTextActive]}>{sede.nombre}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-      )}
+      <View style={styles.selectorWrap}>
+        <Select
+          label="Sede con horario"
+          value={selectedSedeId ? String(selectedSedeId) : ''}
+          onChange={handleSedeChange}
+          options={availableSedes.map((sede) => ({ label: sede.nombre, value: String(sede.id) }))}
+          placeholder="Selecciona una sede"
+          disabled={availableSedes.length === 0}
+        />
+        {availableSedes.length === 0 && (
+          <Text style={styles.selectorHint}>Este mecánico no tiene sedes con horario configurado.</Text>
+        )}
+      </View>
 
       <View style={styles.daysContainer}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -207,28 +269,28 @@ export default function AdminMechanicScheduleScreen() {
             <TouchableOpacity
               key={day.id}
               style={[styles.dayButton, selectedDay === day.id && styles.selectedDayButton]}
-              onPress={() => onChangeDay(day.id)}
+              onPress={() => setSelectedDay(day.id)}
             >
               <Text style={[styles.dayText, selectedDay === day.id && styles.selectedDayText]}>{day.name}</Text>
-              {(schedules[day.id] || []).length > 0 && <View style={styles.dot} />}
+              {(currentSchedulesMap[day.id] || []).length > 0 && <View style={styles.dot} />}
             </TouchableOpacity>
           ))}
         </ScrollView>
       </View>
 
       <ScrollView style={styles.slotsContainer}>
-        <Text style={styles.sectionTitle}>{DAYS.find((d) => d.id === selectedDay)?.name}</Text>
-        <Text style={styles.subtitle}>{isViewOnly ? 'Horario configurado' : 'Selecciona las horas disponibles'}</Text>
+        <Text style={styles.sectionTitle}>Bloques de horario</Text>
+        <Text style={styles.subtitle}>Puedes seleccionar o deseleccionar bloques en intervalos de 30 minutos.</Text>
 
         <View style={styles.grid}>
-          {timeSlots.map((time) => {
-            const isSelected = (schedules[selectedDay] || []).includes(time);
+          {displayedSlots.map((time) => {
+            const isSelected = (currentSchedulesMap[selectedDay] || []).includes(time);
             return (
               <TouchableOpacity
                 key={time}
                 style={[styles.slot, isSelected && styles.selectedSlot]}
                 onPress={() => toggleSlot(time)}
-                disabled={isViewOnly}
+                disabled={!selectedSedeId}
               >
                 <Text style={[styles.slotText, isSelected && styles.selectedSlotText]}>{time}</Text>
               </TouchableOpacity>
@@ -237,11 +299,15 @@ export default function AdminMechanicScheduleScreen() {
         </View>
       </ScrollView>
 
-      {!isViewOnly && (
-        <View style={styles.footer}>
-          <Button title="Guardar Cambios" onPress={handleSave} loading={saving} style={styles.saveButton} />
-        </View>
-      )}
+      <View style={styles.footer}>
+        <Button
+          title="Guardar Cambios"
+          onPress={handleSave}
+          loading={saving}
+          disabled={!selectedSedeId || saving}
+          style={styles.saveButton}
+        />
+      </View>
     </Screen>
   );
 }
@@ -251,63 +317,42 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F5F5F5',
   },
-  header: {
-    padding: 16,
-    backgroundColor: '#FFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#EEEEEE',
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  sedesContainer: {
+  header: {
     backgroundColor: '#FFF',
-    paddingHorizontal: 10,
-    paddingTop: 10,
-    paddingBottom: 6,
+    padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#EEEEEE',
+    borderBottomColor: '#EEE',
   },
-  sedesLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 8,
-    fontWeight: '600',
+  title: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#333',
   },
-  sedeChip: {
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
+  selectorWrap: {
     backgroundColor: '#FFF',
-    borderRadius: 999,
     paddingHorizontal: 12,
-    paddingVertical: 7,
-    marginRight: 8,
+    paddingTop: 10,
+    paddingBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEE',
   },
-  sedeChipActive: {
-    borderColor: '#007bff',
-    backgroundColor: '#E3F2FD',
-  },
-  sedeChipText: {
-    color: '#555',
+  selectorHint: {
     fontSize: 12,
-    fontWeight: '600',
-  },
-  sedeChipTextActive: {
-    color: '#0D47A1',
+    color: '#777',
+    marginTop: -8,
+    marginBottom: 8,
   },
   daysContainer: {
     backgroundColor: '#FFF',
     paddingVertical: 12,
     paddingHorizontal: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#EEEEEE',
+    borderBottomColor: '#EEE',
   },
   dayButton: {
     paddingHorizontal: 16,
@@ -341,12 +386,12 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '700',
     color: '#333',
     marginBottom: 4,
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#666',
     marginBottom: 16,
   },
@@ -374,13 +419,13 @@ const styles = StyleSheet.create({
   },
   selectedSlotText: {
     color: '#007bff',
-    fontWeight: 'bold',
+    fontWeight: '700',
   },
   footer: {
     padding: 16,
     backgroundColor: '#FFF',
     borderTopWidth: 1,
-    borderTopColor: '#EEEEEE',
+    borderTopColor: '#EEE',
   },
   saveButton: {
     backgroundColor: '#007bff',

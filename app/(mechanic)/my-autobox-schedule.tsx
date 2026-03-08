@@ -78,14 +78,14 @@ export default function MechanicMyAutoboxScheduleScreen() {
       const currentMechanicId = await mechanicSedeService.getCurrentMechanicId();
       setMechanicId(currentMechanicId);
 
-      const [sedeSchedule, mechanicSchedule, workingSedes] = await Promise.all([
+      const [sedeSchedule, workingSedes] = await Promise.all([
         mechanicSedeService.getSedeSchedule(sedeId),
-        mechanicSedeService.getMechanicScheduleBySede(currentMechanicId, sedeId),
         mechanicSedeService.getMyWorkingSedes(),
       ]);
 
       setAvailableSlotsByDay(mapScheduleArray(sedeSchedule));
-      setSchedulesByDay(mapScheduleArray(mechanicSchedule));
+      // Step 2 must start with all blocks deselected and available for selection.
+      setSchedulesByDay(initializeMap());
 
       const otherSedes = workingSedes.filter((sede) => sede.id !== sedeId);
       const otherScheduleEntries = await Promise.all(

@@ -69,22 +69,34 @@ class MechanicSedeService {
   }
 
   async getSedesWithActiveSchedule(): Promise<MechanicWorkingSede[]> {
-    // No dedicated with-active-schedule endpoint exists; fall through to the
-    // admin sedes list and filter by checking each sede's schedule.
+    // Step 1 must show all created sedes; schedule validation is done on selection.
     const sedes = await adminService.getSedes().catch(() => []);
-    const withSchedule = await Promise.all(
-      sedes.map(async (sede: any) => {
-        try {
-          const schedule = await this.getSedeSchedule(sede.id);
-          const hasSchedule = schedule.some((item) => item.isActive && Array.isArray(item.timeSlots) && item.timeSlots.length > 0);
-          return hasSchedule ? normalizeSede(sede) : null;
-        } catch {
-          return null;
-        }
-      })
-    );
+    return sedes.map(normalizeSede).filter((item): item is MechanicWorkingSede => Boolean(item));
+  }
 
-    return withSchedule.filter((item): item is MechanicWorkingSede => Boolean(item));
+  async getMechanicSchedules(mechanicId: string): Promise<DaySchedule[]> {
+    const endpoints = [
+      `/mechanics/${mechanicId}/schedule`,
+      `/admin/mechanics/${mechanicId}/schedule`,
+    ];
+
+    for (const endpoint of endpoints) {
+      try {
+        const response = await apiService.get(endpoint);
+        if (!Array.isArray(response)) continue;
+
+        return response.map((item: any) => ({
+          dayOfWeek: Number(item.dayOfWeek),
+          timeSlots: Array.isArray(item.timeSlots) ? item.timeSlots : [],
+          isActive: Boolean(item.isActive),
+          sedeId: parseNumber(item?.sedeId ?? item?.sede?.id),
+        }));
+      } catch (_error) {
+        // Try next endpoint.
+      }
+    }
+
+    return [];
   }
 
   async getMyWorkingSedes(): Promise<MechanicWorkingSede[]> {
