@@ -26,6 +26,12 @@ export default function MechanicDetailScreen() {
   const [showSedeModal, setShowSedeModal] = useState(false);
   const [sedeActionType, setSedeActionType] = useState<'block' | 'change' | null>(null);
   const [selectedSedeId, setSelectedSedeId] = useState<string>('');
+  const [mechanicWorkingSedes, setMechanicWorkingSedes] = useState<{ id: number; nombre: string }[]>([]);
+  const [mechanicBlockedSedeIds, setMechanicBlockedSedeIds] = useState<number[]>([]);
+  const [currentMechanicSedeId, setCurrentMechanicSedeId] = useState<number | null>(null);
+  const [activeChangeChip, setActiveChangeChip] = useState<'one' | 'two'>('one');
+  const [selectedChangeSedeOne, setSelectedChangeSedeOne] = useState<string>('');
+  const [selectedChangeSedeTwo, setSelectedChangeSedeTwo] = useState<string>('');
   const [runningSedeAction, setRunningSedeAction] = useState(false);
 
   useEffect(() => {
@@ -241,37 +247,121 @@ export default function MechanicDetailScreen() {
   const openSedeActionModal = async (type: 'block' | 'change') => {
     setSedeActionType(type);
     if (type === 'change' && mechanic) {
-      const directId = (mechanic as any)?.sedeId ?? (mechanic as any)?.sede?.id;
-      if (directId) {
-        setSelectedSedeId(String(directId));
-      } else {
+      const [working, blocked] = await Promise.all([
+        adminService.getMechanicWorkingSedes(mechanic.id).catch(() => []),
+        adminService.getMechanicBlockedSedes(mechanic.id).catch(() => []),
+      ]);
+
+      const normalizedWorking = (working || []).map((item) => ({ id: Number(item.id), nombre: item.nombre }));
+      setMechanicWorkingSedes(normalizedWorking.filter((item) => Number.isFinite(item.id)));
+      setMechanicBlockedSedeIds(blocked || []);
+
+      const directId = Number((mechanic as any)?.sedeId ?? (mechanic as any)?.sede?.id);
+      const fromName = (() => {
         const currentName = String((mechanic as any)?.sede?.nombre || (mechanic as any)?.module || '').trim().toLowerCase();
         const matched = sedes.find((sede) => sede.nombre.trim().toLowerCase() === currentName);
-        setSelectedSedeId(matched ? String(matched.id) : '');
-      }
+        return matched ? matched.id : null;
+      })();
+
+      setCurrentMechanicSedeId(Number.isFinite(directId) ? directId : fromName);
+      setSelectedChangeSedeOne('');
+      setSelectedChangeSedeTwo('');
+      setActiveChangeChip('one');
+      setSelectedSedeId('');
     } else {
+      setMechanicWorkingSedes([]);
+      setMechanicBlockedSedeIds([]);
+      setCurrentMechanicSedeId(null);
+      setSelectedChangeSedeOne('');
+      setSelectedChangeSedeTwo('');
+      setActiveChangeChip('one');
       setSelectedSedeId('');
     }
     setShowSedeModal(true);
   };
 
+  const getChangeDisabledReason = (sedeId: number): string | null => {
+    const workingIds = new Set(mechanicWorkingSedes.map((item) => item.id));
+    const selectedOtherChip = activeChangeChip === 'one' ? Number(selectedChangeSedeTwo) : Number(selectedChangeSedeOne);
+
+    if (currentMechanicSedeId === sedeId) return 'Sede actual';
+    if (workingIds.has(sedeId)) return 'Ya inscrita';
+    if (mechanicBlockedSedeIds.includes(sedeId)) return 'Bloqueada';
+    if (Number.isFinite(selectedOtherChip) && selectedOtherChip === sedeId) return 'Ya elegida';
+
+    return null;
+  };
+
+  const handleSelectChangeSede = (sedeId: number) => {
+    const reason = getChangeDisabledReason(sedeId);
+    if (reason) {
+      Alert.alert('No disponible', `No puedes seleccionar esta sede: ${reason}.`);
+      return;
+    }
+
+    if (activeChangeChip === 'one') {
+      setSelectedChangeSedeOne(String(sedeId));
+      return;
+    }
+
+    setSelectedChangeSedeTwo(String(sedeId));
+  };
+
   const runSedeAction = async () => {
-    if (!mechanic || !sedeActionType || !selectedSedeId) return;
+    if (!mechanic || !sedeActionType) return;
 
     try {
       setRunningSedeAction(true);
-      const sedeId = Number(selectedSedeId);
+
       if (sedeActionType === 'block') {
+        if (!selectedSedeId) return;
+        const sedeId = Number(selectedSedeId);
         await adminService.blockMechanicFromSede(mechanic.id, sedeId);
         Alert.alert('Éxito', 'Mecánico bloqueado correctamente de la sede seleccionada.');
       } else {
-        await adminService.changeMechanicSede(mechanic.id, sedeId);
-        Alert.alert('Éxito', 'Sede del mecánico actualizada correctamente.');
+        const secondChipEnabled = mechanicWorkingSedes.length >= 2;
+        const rawTargets = [selectedChangeSedeOne, secondChipEnabled ? selectedChangeSedeTwo : '']
+          .map((value) => Number(value))
+          .filter((value) => Number.isFinite(value));
+
+        const uniqueTargets = Array.from(new Set(rawTargets));
+
+        if (uniqueTargets.length === 0) {
+          Alert.alert('Selección requerida', 'Debes seleccionar al menos una sede para cambiar.');
+          return;
+        }
+
+        if (rawTargets.length !== uniqueTargets.length) {
+          Alert.alert('Selección inválida', 'No puede estar la misma sede en ambos chips.');
+          return;
+        }
+
+        const workingIds = new Set(mechanicWorkingSedes.map((item) => item.id));
+        const invalidTarget = uniqueTargets.find((sedeId) => {
+          return (
+            workingIds.has(sedeId) ||
+            mechanicBlockedSedeIds.includes(sedeId) ||
+            currentMechanicSedeId === sedeId
+          );
+        });
+
+        if (invalidTarget) {
+          Alert.alert('Selección inválida', 'Hay sedes seleccionadas que no están permitidas para el cambio.');
+          return;
+        }
+
+        for (const targetSedeId of uniqueTargets) {
+          await adminService.changeMechanicSede(mechanic.id, targetSedeId);
+        }
+
+        Alert.alert('Éxito', 'Sedes del mecánico actualizadas correctamente.');
       }
 
       setShowSedeModal(false);
       setSedeActionType(null);
       setSelectedSedeId('');
+      setSelectedChangeSedeOne('');
+      setSelectedChangeSedeTwo('');
       await loadMechanic();
     } catch (error: any) {
       Alert.alert('Error', error?.message || 'No se pudo ejecutar la acción de sede');
@@ -446,13 +536,79 @@ export default function MechanicDetailScreen() {
               <Text style={styles.modalTitle}>
                 {sedeActionType === 'block' ? 'Bloquear mecánico de sede' : 'Cambiar mecánico de sede'}
               </Text>
-              <Select
-                label="Sede"
-                value={selectedSedeId}
-                onChange={setSelectedSedeId}
-                options={sedes.map((sede) => ({ label: sede.nombre, value: String(sede.id) }))}
-                placeholder="Selecciona una sede"
-              />
+
+              {sedeActionType === 'block' ? (
+                <Select
+                  label="Sede"
+                  value={selectedSedeId}
+                  onChange={setSelectedSedeId}
+                  options={sedes.map((sede) => ({ label: sede.nombre, value: String(sede.id) }))}
+                  placeholder="Selecciona una sede"
+                />
+              ) : (
+                <View style={styles.changeSedeContainer}>
+                  <View style={styles.changeChipsRow}>
+                    <TouchableOpacity
+                      style={[styles.changeChip, activeChangeChip === 'one' && styles.changeChipActive]}
+                      onPress={() => setActiveChangeChip('one')}
+                    >
+                      <Text style={styles.changeChipLabel}>Autobox 1</Text>
+                      <Text style={[styles.changeChipValue, !selectedChangeSedeOne && styles.changeChipPlaceholder]}>
+                        {selectedChangeSedeOne
+                          ? sedes.find((item) => item.id === Number(selectedChangeSedeOne))?.nombre || `Sede #${selectedChangeSedeOne}`
+                          : 'Seleccionar sede'}
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[
+                        styles.changeChip,
+                        activeChangeChip === 'two' && styles.changeChipActive,
+                        mechanicWorkingSedes.length < 2 && styles.changeChipDisabled,
+                      ]}
+                      onPress={() => {
+                        if (mechanicWorkingSedes.length < 2) return;
+                        setActiveChangeChip('two');
+                      }}
+                      disabled={mechanicWorkingSedes.length < 2}
+                    >
+                      <Text style={styles.changeChipLabel}>Autobox 2</Text>
+                      <Text style={[styles.changeChipValue, !selectedChangeSedeTwo && styles.changeChipPlaceholder]}>
+                        {selectedChangeSedeTwo
+                          ? sedes.find((item) => item.id === Number(selectedChangeSedeTwo))?.nombre || `Sede #${selectedChangeSedeTwo}`
+                          : 'Seleccionar sede'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <Text style={styles.changeHelpText}>No se pueden elegir sedes bloqueadas, ya inscritas, la sede actual ni repetir la misma sede en ambos chips.</Text>
+
+                  <ScrollView style={styles.sedeListContainer}>
+                    {sedes.map((sede) => {
+                      const disabledReason = getChangeDisabledReason(sede.id);
+                      const isDisabled = Boolean(disabledReason);
+                      return (
+                        <TouchableOpacity
+                          key={String(sede.id)}
+                          style={[styles.changeSedeItem, isDisabled && styles.changeSedeItemDisabled]}
+                          onPress={() => handleSelectChangeSede(sede.id)}
+                          disabled={isDisabled}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.changeSedeName}>{sede.nombre}</Text>
+                            <Text style={styles.changeSedeMeta}>ID: {sede.id}</Text>
+                          </View>
+                          {isDisabled ? (
+                            <Text style={styles.changeSedeBadgeDisabled}>{disabledReason}</Text>
+                          ) : (
+                            <Ionicons name="chevron-forward" size={18} color="#999" />
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              )}
 
               <View style={styles.modalButtonsRow}>
                 <Button
@@ -465,7 +621,12 @@ export default function MechanicDetailScreen() {
                   title={sedeActionType === 'block' ? 'Bloquear' : 'Cambiar'}
                   onPress={runSedeAction}
                   loading={runningSedeAction}
-                  disabled={!selectedSedeId || runningSedeAction}
+                  disabled={
+                    runningSedeAction ||
+                    (sedeActionType === 'block'
+                      ? !selectedSedeId
+                      : !selectedChangeSedeOne && !selectedChangeSedeTwo)
+                  }
                   style={[
                     styles.modalButton,
                     sedeActionType === 'block' ? styles.blockButton : styles.changeButton,
@@ -600,6 +761,80 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#333',
     marginBottom: 12,
+  },
+  changeSedeContainer: {
+    gap: 10,
+    marginBottom: 8,
+  },
+  changeChipsRow: {
+    gap: 8,
+  },
+  changeChip: {
+    borderWidth: 1,
+    borderColor: '#E5E5E5',
+    borderRadius: 10,
+    backgroundColor: '#FFF',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  changeChipActive: {
+    borderColor: '#F9A825',
+    backgroundColor: '#FFF9E8',
+  },
+  changeChipDisabled: {
+    backgroundColor: '#F4F4F4',
+    borderColor: '#ECECEC',
+  },
+  changeChipLabel: {
+    fontSize: 12,
+    color: '#777',
+    marginBottom: 2,
+  },
+  changeChipValue: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#222',
+  },
+  changeChipPlaceholder: {
+    color: '#A0A0A0',
+    fontWeight: '400',
+  },
+  changeHelpText: {
+    fontSize: 12,
+    color: '#666',
+  },
+  sedeListContainer: {
+    maxHeight: 220,
+    borderWidth: 1,
+    borderColor: '#EEEEEE',
+    borderRadius: 10,
+    backgroundColor: '#FFF',
+  },
+  changeSedeItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F3F3',
+  },
+  changeSedeItemDisabled: {
+    opacity: 0.55,
+  },
+  changeSedeName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#222',
+  },
+  changeSedeMeta: {
+    marginTop: 2,
+    fontSize: 12,
+    color: '#777',
+  },
+  changeSedeBadgeDisabled: {
+    fontSize: 11,
+    color: '#C62828',
+    fontWeight: '700',
   },
   modalButtonsRow: {
     flexDirection: 'row',

@@ -26,10 +26,7 @@ export default function MechanicMyAutoboxScreen() {
   const [mechanicId, setMechanicId] = useState<string | null>(null);
   const [availableSedes, setAvailableSedes] = useState<MechanicWorkingSede[]>([]);
   const [blockedSedeIds, setBlockedSedeIds] = useState<number[]>([]);
-  const [workingSedeIds, setWorkingSedeIds] = useState<number[]>([]);
-  const [selectedSedePrimary, setSelectedSedePrimary] = useState<MechanicWorkingSede | null>(null);
-  const [selectedSedeSecondary, setSelectedSedeSecondary] = useState<MechanicWorkingSede | null>(null);
-  const [activeChip, setActiveChip] = useState<'primary' | 'secondary'>('primary');
+  const [selectedSede, setSelectedSede] = useState<MechanicWorkingSede | null>(null);
 
   const loadData = async () => {
     try {
@@ -37,28 +34,19 @@ export default function MechanicMyAutoboxScreen() {
       const currentMechanicId = await mechanicSedeService.getCurrentMechanicId();
       setMechanicId(currentMechanicId);
 
-      const [sedes, blockedSedes, mySedes] = await Promise.all([
+      const [sedes, blockedSedes] = await Promise.all([
         mechanicSedeService.getSedesWithActiveSchedule(),
         mechanicSedeService.getBlockedSedes(currentMechanicId),
-        mechanicSedeService.getMyWorkingSedes(),
       ]);
 
       setAvailableSedes(sedes);
       setBlockedSedeIds(blockedSedes);
-      setWorkingSedeIds(mySedes.map((item) => item.id));
 
-      setSelectedSedePrimary((current) => {
-        if (current && sedes.some((sede) => sede.id === current.id)) return current;
-        return mySedes[0] || null;
-      });
-
-      setSelectedSedeSecondary((current) => {
-        if (current && sedes.some((sede) => sede.id === current.id)) return current;
-        return mySedes[1] || null;
-      });
-
-      if (mySedes.length < 2) {
-        setActiveChip('primary');
+      if (selectedSede) {
+        const stillExists = sedes.some((sede) => sede.id === selectedSede.id);
+        if (!stillExists) {
+          setSelectedSede(null);
+        }
       }
     } catch (error: any) {
       Alert.alert('Error', error?.message || 'No se pudieron cargar las sedes');
@@ -85,27 +73,9 @@ export default function MechanicMyAutoboxScreen() {
     });
   }, [availableSedes, searchQuery]);
 
-  const secondaryChipDisabled = workingSedeIds.length < 2;
-  const activeSelectedSede = activeChip === 'primary' ? selectedSedePrimary : selectedSedeSecondary;
-
   const handlePickSede = async (sede: MechanicWorkingSede) => {
     if (blockedSedeIds.includes(sede.id)) {
       Alert.alert('Sede bloqueada', 'No puedes seleccionar esta sede porque fue bloqueada por un administrador.');
-      return;
-    }
-
-    if (workingSedeIds.includes(sede.id)) {
-      Alert.alert('Sede ya inscrita', 'Esta sede ya está inscrita y no se puede volver a seleccionar aquí.');
-      return;
-    }
-
-    const selectedInOtherChip =
-      activeChip === 'primary'
-        ? selectedSedeSecondary?.id === sede.id
-        : selectedSedePrimary?.id === sede.id;
-
-    if (selectedInOtherChip) {
-      Alert.alert('Sede duplicada', 'No puedes seleccionar la misma sede en ambos chips.');
       return;
     }
 
@@ -113,20 +83,16 @@ export default function MechanicMyAutoboxScreen() {
     const hasVigenteSchedule = schedule.some((item) => item.isActive && item.timeSlots.length > 0);
 
     if (!hasVigenteSchedule) {
-      Alert.alert('Error', 'Sede sin horario". Seleccione una que esté con horario vigente)');
+      Alert.alert('Error', 'Sede sin horario. Seleccione una que este con horario vigente.');
       return;
     }
 
-    if (activeChip === 'primary') {
-      setSelectedSedePrimary(sede);
-    } else {
-      setSelectedSedeSecondary(sede);
-    }
+    setSelectedSede(sede);
     setSedeModalVisible(false);
   };
 
   const handleContinue = async () => {
-    if (!activeSelectedSede || !mechanicId) return;
+    if (!selectedSede || !mechanicId) return;
 
     try {
       setContinuing(true);
@@ -145,12 +111,12 @@ export default function MechanicMyAutoboxScreen() {
       if (hasFuturePendingInspection) {
         Alert.alert(
           'Cambio de sede no permitido',
-          'No puedes cambiarte de sede mientras tengas citas pendientes en el día.'
+          'No puedes cambiarte de sede mientras tengas citas pendientes en el dia.'
         );
         return;
       }
 
-      const validation = await mechanicSedeService.validateSedeChange(mechanicId, activeSelectedSede.id);
+      const validation = await mechanicSedeService.validateSedeChange(mechanicId, selectedSede.id);
       if (!validation.allowed) {
         Alert.alert('No disponible', validation.message || 'No puedes cambiar de sede en este momento.');
         return;
@@ -159,9 +125,9 @@ export default function MechanicMyAutoboxScreen() {
       router.push({
         pathname: '/(mechanic)/my-autobox-schedule',
         params: {
-          sedeId: String(activeSelectedSede.id),
-          sedeNombre: activeSelectedSede.nombre,
-          sedeDireccion: activeSelectedSede.direccion || '',
+          sedeId: String(selectedSede.id),
+          sedeNombre: selectedSede.nombre,
+          sedeDireccion: selectedSede.direccion || '',
         },
       });
     } catch (error: any) {
@@ -183,7 +149,7 @@ export default function MechanicMyAutoboxScreen() {
     <Screen style={styles.container}>
       <View style={styles.content}>
         <Text style={styles.title}>Seleccionar una sede</Text>
-        <Text style={styles.subtitle}>Seleccione en qué sedes desea trabajar.</Text>
+        <Text style={styles.subtitle}>Seleccione en que sedes desea trabajar.</Text>
 
         <TextInput
           style={styles.searchInput}
@@ -193,51 +159,21 @@ export default function MechanicMyAutoboxScreen() {
           autoCapitalize="none"
         />
 
-        <TouchableOpacity
-          style={[styles.chipSelector, activeChip === 'primary' && styles.chipSelectorActive]}
-          onPress={() => {
-            setActiveChip('primary');
-            setSedeModalVisible(true);
-          }}
-        >
+        <TouchableOpacity style={styles.chipSelector} onPress={() => setSedeModalVisible(true)}>
           <View style={styles.chipSelectorTextWrap}>
-            <Text style={styles.chipLabel}>Autobox 1</Text>
-            <Text style={[styles.chipValue, !selectedSedePrimary && styles.chipPlaceholder]}>
-              {selectedSedePrimary ? `${selectedSedePrimary.nombre} (#${selectedSedePrimary.id})` : 'Seleccionar sede'}
+            <Text style={styles.chipLabel}>Autobox seleccionado</Text>
+            <Text style={[styles.chipValue, !selectedSede && styles.chipPlaceholder]}>
+              {selectedSede ? `${selectedSede.nombre} (#${selectedSede.id})` : 'Seleccionar sede'}
             </Text>
           </View>
           <Ionicons name="chevron-down" size={20} color="#666" />
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[
-            styles.chipSelector,
-            activeChip === 'secondary' && styles.chipSelectorActive,
-            secondaryChipDisabled && styles.chipSelectorDisabled,
-          ]}
-          onPress={() => {
-            if (secondaryChipDisabled) return;
-            setActiveChip('secondary');
-            setSedeModalVisible(true);
-          }}
-          disabled={secondaryChipDisabled}
-        >
-          <View style={styles.chipSelectorTextWrap}>
-            <Text style={styles.chipLabel}>Autobox 2</Text>
-            <Text style={[styles.chipValue, !selectedSedeSecondary && styles.chipPlaceholder]}>
-              {selectedSedeSecondary ? `${selectedSedeSecondary.nombre} (#${selectedSedeSecondary.id})` : 'Seleccionar sede'}
-            </Text>
-          </View>
-          <Ionicons name="chevron-down" size={20} color={secondaryChipDisabled ? '#B5B5B5' : '#666'} />
-        </TouchableOpacity>
-
         <View style={styles.infoCard}>
-          <Text style={styles.infoTitle}>Reglas rápidas</Text>
-          <Text style={styles.infoText}>• Puedes trabajar en hasta dos sedes el mismo día.</Text>
-          <Text style={styles.infoText}>• Si tienes una sola sede inscrita, el chip inferior queda desactivado.</Text>
-          <Text style={styles.infoText}>• Las sedes ya inscritas no se pueden volver a seleccionar.</Text>
-          <Text style={styles.infoText}>• Solo puedes elegir sedes con horario vigente.</Text>
-          <Text style={styles.infoText}>• Si una sede fue bloqueada por admin, no estará disponible.</Text>
+          <Text style={styles.infoTitle}>Reglas rapidas</Text>
+          <Text style={styles.infoText}>- Solo puedes escoger una sede por sesion.</Text>
+          <Text style={styles.infoText}>- Solo puedes elegir sedes con horario vigente.</Text>
+          <Text style={styles.infoText}>- Si una sede fue bloqueada por admin, no estara disponible.</Text>
         </View>
       </View>
 
@@ -245,7 +181,7 @@ export default function MechanicMyAutoboxScreen() {
         <Button
           title="CONTINUAR"
           onPress={handleContinue}
-          disabled={!activeSelectedSede || continuing}
+          disabled={!selectedSede || continuing}
           loading={continuing}
           style={styles.continueButton}
         />
@@ -271,18 +207,11 @@ export default function MechanicMyAutoboxScreen() {
               keyExtractor={(item) => String(item.id)}
               renderItem={({ item }) => {
                 const isBlocked = blockedSedeIds.includes(item.id);
-                const isAlreadyInscribed = workingSedeIds.includes(item.id);
-                const selectedInOtherChip =
-                  activeChip === 'primary'
-                    ? selectedSedeSecondary?.id === item.id
-                    : selectedSedePrimary?.id === item.id;
-                const isDisabled = isBlocked || isAlreadyInscribed || selectedInOtherChip;
-
                 return (
                   <TouchableOpacity
-                    style={[styles.sedeItem, isDisabled && styles.sedeItemBlocked]}
+                    style={[styles.sedeItem, isBlocked && styles.sedeItemBlocked]}
                     onPress={() => handlePickSede(item)}
-                    disabled={isDisabled}
+                    disabled={isBlocked}
                   >
                     <View style={{ flex: 1 }}>
                       <Text style={styles.sedeName}>{item.nombre}</Text>
@@ -291,10 +220,6 @@ export default function MechanicMyAutoboxScreen() {
                     </View>
                     {isBlocked ? (
                       <Text style={styles.blockedText}>Bloqueada</Text>
-                    ) : isAlreadyInscribed ? (
-                      <Text style={styles.blockedText}>Inscrita</Text>
-                    ) : selectedInOtherChip ? (
-                      <Text style={styles.blockedText}>Ya elegida</Text>
                     ) : (
                       <Ionicons name="chevron-forward" size={18} color="#999" />
                     )}
@@ -303,7 +228,7 @@ export default function MechanicMyAutoboxScreen() {
               }}
               ListEmptyComponent={
                 <View style={styles.emptyState}>
-                  <Text style={styles.emptyText}>No se encontraron sedes para tu búsqueda</Text>
+                  <Text style={styles.emptyText}>No se encontraron sedes para tu busqueda</Text>
                 </View>
               }
             />
@@ -359,13 +284,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-  },
-  chipSelectorActive: {
-    borderColor: '#FF9800',
-  },
-  chipSelectorDisabled: {
-    backgroundColor: '#F4F4F4',
-    borderColor: '#EDEDED',
   },
   chipSelectorTextWrap: {
     flex: 1,

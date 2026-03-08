@@ -584,6 +584,23 @@ class AdminService {
     return [];
   }
 
+  async getMechanicBlockedSedes(mechanicId: string): Promise<number[]> {
+    try {
+      const headers = await this.getHeaders();
+      const response = await fetch(`${API_URL}/mechanics/${mechanicId}/blocked-sedes`, { headers });
+      if (!response.ok) return [];
+
+      const data = await response.json();
+      if (!Array.isArray(data)) return [];
+
+      return data
+        .map((item: any) => Number(item?.sedeId ?? item?.id ?? item))
+        .filter((id: number) => Number.isFinite(id));
+    } catch (_error) {
+      return [];
+    }
+  }
+
   async getMechanicScheduleBySede(mechanicId: string, sedeId: number): Promise<MechanicSchedule[]> {
     // GET /mechanics/:id/schedule returns items with sedeId field; filter client-side.
     const endpoints = [
