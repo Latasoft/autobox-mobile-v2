@@ -103,7 +103,12 @@ class MechanicSedeService {
     }
 
     // Fallback for legacy deployments where /sedes is not exposed.
-    const adminSedes = await adminService.getSedes().catch(() => []);
+    // IMPORTANT: must include includeWithoutSchedule=true so that when admin_controller
+    // intercepts the request for MECANICO role it calls getMechanicSedes with the flag set,
+    // returning all available sedes even when the mechanic has no schedules yet.
+    // Using adminService.getSedes() would send ?includeInactive=true WITHOUT this flag,
+    // which causes the backend to return [] for mechanics with no schedules.
+    const adminSedes = await apiService.get('/admin/sedes?includeWithoutSchedule=true').catch(() => []);
     return extractArrayPayload(adminSedes)
       .map(normalizeSede)
       .filter((item): item is MechanicWorkingSede => Boolean(item));

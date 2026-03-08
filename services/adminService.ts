@@ -635,10 +635,14 @@ class AdminService {
 
   async blockMechanicFromSede(mechanicId: string, sedeId: number, reason?: string): Promise<void> {
     const headers = await this.getHeaders();
+    // admin-block is the correct endpoint for admin-initiated blocks (mechanics.controller.ts).
+    // The self-block route (/sedes/:sedeId/block) is intentionally kept as last resort only —
+    // it returns 403 for admins since it checks req.user.id === mechanic.id.
+    // The previously present /admin/mechanics/:id/sedes/:sedeId/block route does NOT exist in
+    // the backend and has been removed to avoid a guaranteed 404 on every call.
     const endpoints = [
-      `${API_URL}/mechanics/${mechanicId}/sedes/${sedeId}/block`,
-      `${API_URL}/admin/mechanics/${mechanicId}/sedes/${sedeId}/block`,
       `${API_URL}/mechanics/${mechanicId}/sedes/${sedeId}/admin-block`,
+      `${API_URL}/mechanics/${mechanicId}/sedes/${sedeId}/block`,
     ];
 
     let lastError = 'No se pudo bloquear al mecánico de la sede seleccionada';

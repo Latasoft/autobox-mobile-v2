@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -41,6 +41,12 @@ export default function MechanicScheduleScreen() {
   const [workingSedes, setWorkingSedes] = useState<MechanicWorkingSede[]>([]);
   const [selectedSedeId, setSelectedSedeId] = useState<number | null>(null);
 
+  // Tracks whether the initial loadData() call has already invoked loadSedeScheduleState.
+  // Without this ref the useEffect([selectedSedeId]) fires on mount (first state set by
+  // loadData) AND on every subsequent user-driven sede change — causing a duplicate network
+  // round-trip on the very first render.
+  const initialLoadDone = useRef(false);
+
   const [selectedDay, setSelectedDay] = useState<number>(1);
   const [schedules, setSchedules] = useState<Record<number, string[]>>({});
   const [availableSlots, setAvailableSlots] = useState<Record<number, string[]>>({});
@@ -75,6 +81,9 @@ export default function MechanicScheduleScreen() {
   };
 
   const loadData = async () => {
+    // Reset the guard so the useEffect skip works correctly on every focus event,
+    // not just the initial mount.
+    initialLoadDone.current = false;
     try {
       setLoading(true);
       const currentMechanicId = await mechanicSedeService.getCurrentMechanicId();
@@ -124,6 +133,13 @@ export default function MechanicScheduleScreen() {
 
   useEffect(() => {
     if (!mechanicId || !selectedSedeId) return;
+
+    // Skip the first trigger: loadData() already called loadSedeScheduleState directly
+    // and set selectedSedeId. We only want this effect to re-run on user-driven sede changes.
+    if (!initialLoadDone.current) {
+      initialLoadDone.current = true;
+      return;
+    }
 
     loadSedeScheduleState(mechanicId, selectedSedeId).catch(() => {
       Alert.alert('Error', 'No se pudo cambiar la sede seleccionada');
