@@ -9,12 +9,22 @@ export default function MechanicMyAutoboxListScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [sedes, setSedes] = useState<MechanicWorkingSede[]>([]);
+  const [workingSedeIds, setWorkingSedeIds] = useState<number[]>([]);
+  const [blockedSedeIds, setBlockedSedeIds] = useState<number[]>([]);
 
   const loadData = async () => {
     try {
       setLoading(true);
-      const data = await mechanicSedeService.getMyWorkingSedes();
-      setSedes(data);
+      const mechanicId = await mechanicSedeService.getCurrentMechanicId();
+      const [allSedes, mySedes, blocked] = await Promise.all([
+        mechanicSedeService.getSedesWithActiveSchedule(),
+        mechanicSedeService.getMyWorkingSedes(),
+        mechanicSedeService.getBlockedSedes(mechanicId),
+      ]);
+
+      setSedes(allSedes);
+      setWorkingSedeIds(mySedes.map((item) => item.id));
+      setBlockedSedeIds(blocked);
     } finally {
       setLoading(false);
     }
@@ -44,27 +54,37 @@ export default function MechanicMyAutoboxListScreen() {
           data={list}
           keyExtractor={(item) => String(item.id)}
           contentContainerStyle={styles.content}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={styles.card}
-              onPress={() =>
-                router.push({
-                  pathname: '/(mechanic)/schedule',
-                  params: { sedeId: String(item.id) },
-                })
-              }
-            >
-              <View style={styles.cardLeft}>
-                <Ionicons name="storefront-outline" size={20} color="#FF9800" />
-                <View style={styles.cardInfo}>
-                  <Text style={styles.cardTitle}>{item.nombre}</Text>
-                  <Text style={styles.cardMeta}>ID: {item.id}</Text>
-                  {!!item.direccion && <Text style={styles.cardAddress}>{item.direccion}</Text>}
+          renderItem={({ item }) => {
+            const isWorking = workingSedeIds.includes(item.id);
+            const isBlocked = blockedSedeIds.includes(item.id);
+            const isSelectable = isWorking && !isBlocked;
+
+            return (
+              <TouchableOpacity
+                style={[styles.card, !isSelectable && styles.cardDisabled]}
+                onPress={() =>
+                  isSelectable &&
+                  router.push({
+                    pathname: '/(mechanic)/schedule',
+                    params: { sedeId: String(item.id) },
+                  })
+                }
+                disabled={!isSelectable}
+              >
+                <View style={styles.cardLeft}>
+                  <Ionicons name="storefront-outline" size={20} color={isSelectable ? '#FF9800' : '#B0B0B0'} />
+                  <View style={styles.cardInfo}>
+                    <Text style={[styles.cardTitle, !isSelectable && styles.disabledText]}>{item.nombre}</Text>
+                    <Text style={[styles.cardMeta, !isSelectable && styles.disabledText]}>ID: {item.id}</Text>
+                    {!!item.direccion && <Text style={[styles.cardAddress, !isSelectable && styles.disabledText]}>{item.direccion}</Text>}
+                    {!isWorking && <Text style={styles.statusHint}>No asignada</Text>}
+                    {isBlocked && <Text style={styles.statusHintBlocked}>Bloqueada</Text>}
+                  </View>
                 </View>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color="#999" />
-            </TouchableOpacity>
-          )}
+                <Ionicons name="chevron-forward" size={18} color={isSelectable ? '#999' : '#D0D0D0'} />
+              </TouchableOpacity>
+            );
+          }}
           ListEmptyComponent={
             <View style={styles.emptyWrap}>
               <Text style={styles.emptyText}>No tienes Autobox asignados todavía.</Text>
@@ -117,6 +137,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  cardDisabled: {
+    backgroundColor: '#F9F9F9',
+  },
   cardLeft: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -140,6 +163,21 @@ const styles = StyleSheet.create({
     marginTop: 2,
     color: '#555',
     fontSize: 12,
+  },
+  disabledText: {
+    color: '#A8A8A8',
+  },
+  statusHint: {
+    marginTop: 4,
+    fontSize: 12,
+    color: '#9E9E9E',
+    fontWeight: '600',
+  },
+  statusHintBlocked: {
+    marginTop: 4,
+    fontSize: 12,
+    color: '#B71C1C',
+    fontWeight: '700',
   },
   emptyWrap: {
     paddingTop: 50,
