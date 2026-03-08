@@ -26,6 +26,11 @@ const DAYS = [
 
 const uniqueSorted = (values: string[]) => Array.from(new Set(values)).sort();
 
+const parseSedeId = (item: any): number | null => {
+  const parsed = Number(item?.sedeId ?? item?.sede?.id);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
 export default function MechanicScheduleScreen() {
   const router = useRouter();
   const routeParams = useLocalSearchParams();
@@ -75,16 +80,34 @@ export default function MechanicScheduleScreen() {
       const currentMechanicId = await mechanicSedeService.getCurrentMechanicId();
       setMechanicId(currentMechanicId);
 
-      const sedes = await mechanicSedeService.getMyWorkingSedes();
-      setWorkingSedes(sedes);
+      const [sedes, mechanicSchedules] = await Promise.all([
+        mechanicSedeService.getMyWorkingSedes(),
+        mechanicSedeService.getMechanicSchedules(currentMechanicId),
+      ]);
 
-      if (sedes.length > 0) {
+      const sedeIdsWithSchedule = new Set<number>();
+      mechanicSchedules.forEach((item: any) => {
+        if (!item?.isActive || !Array.isArray(item?.timeSlots) || item.timeSlots.length === 0) return;
+        const sedeId = parseSedeId(item);
+        if (sedeId) sedeIdsWithSchedule.add(sedeId);
+      });
+
+      const sedesMarkedActive = sedes.filter((sede) => sede.hasActiveSchedule === true);
+      const filteredSedes = sedeIdsWithSchedule.size > 0
+        ? sedes.filter((sede) => sedeIdsWithSchedule.has(sede.id))
+        : sedesMarkedActive.length > 0
+        ? sedesMarkedActive
+        : sedes;
+
+      setWorkingSedes(filteredSedes);
+
+      if (filteredSedes.length > 0) {
         const preselectedFromRoute = Number(Array.isArray(routeParams.sedeId) ? routeParams.sedeId[0] : routeParams.sedeId);
-        const nextSedeId = selectedSedeId && sedes.some((s) => s.id === selectedSedeId)
+        const nextSedeId = selectedSedeId && filteredSedes.some((s) => s.id === selectedSedeId)
           ? selectedSedeId
-          : Number.isFinite(preselectedFromRoute) && sedes.some((s) => s.id === preselectedFromRoute)
+          : Number.isFinite(preselectedFromRoute) && filteredSedes.some((s) => s.id === preselectedFromRoute)
           ? preselectedFromRoute
-          : sedes[0].id;
+          : filteredSedes[0].id;
         setSelectedSedeId(nextSedeId);
         await loadSedeScheduleState(currentMechanicId, nextSedeId);
       } else {

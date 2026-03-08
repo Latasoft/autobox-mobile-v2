@@ -36,15 +36,38 @@ const parseNumber = (value: any): number | undefined => {
   return Number.isFinite(parsed) ? parsed : undefined;
 };
 
+const parseBoolean = (value: any): boolean | undefined => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'si', 'sí', 'yes', 'active', 'activo'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'inactive', 'inactivo'].includes(normalized)) return false;
+  }
+
+  return undefined;
+};
+
+const extractArrayPayload = (payload: any): any[] => {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.items)) return payload.items;
+  if (Array.isArray(payload?.results)) return payload.results;
+  if (Array.isArray(payload?.sedes)) return payload.sedes;
+  return [];
+};
+
 const normalizeSede = (raw: any): MechanicWorkingSede | null => {
   const id = parseNumber(raw?.id ?? raw?.sedeId ?? raw?.sede?.id);
   if (!id) return null;
+
+  const hasActiveSchedule = parseBoolean(raw?.hasActiveSchedule ?? raw?.tieneHorarioVigente ?? raw?.hasSchedule);
 
   return {
     id,
     nombre: String(raw?.nombre ?? raw?.name ?? raw?.sede?.nombre ?? `Autobox ${id}`),
     direccion: raw?.direccion ?? raw?.address ?? raw?.sede?.direccion,
-    hasActiveSchedule: Boolean(raw?.hasActiveSchedule ?? raw?.tieneHorarioVigente ?? true),
+    hasActiveSchedule,
     blocked: Boolean(raw?.blocked ?? raw?.isBlocked ?? false),
   };
 };
@@ -69,9 +92,21 @@ class MechanicSedeService {
   }
 
   async getSedesWithActiveSchedule(): Promise<MechanicWorkingSede[]> {
-    // Step 1 must show all created sedes; schedule validation is done on selection.
-    const sedes = await adminService.getSedes().catch(() => []);
-    return sedes.map(normalizeSede).filter((item): item is MechanicWorkingSede => Boolean(item));
+    // Mechanics should consume non-admin endpoints to avoid role-based empty results.
+    const publicSedes = await apiService.get('/sedes').catch(() => []);
+    const source = extractArrayPayload(publicSedes);
+
+    if (source.length > 0) {
+      return source
+        .map(normalizeSede)
+        .filter((item): item is MechanicWorkingSede => Boolean(item));
+    }
+
+    // Fallback for legacy deployments where /sedes is not exposed.
+    const adminSedes = await adminService.getSedes().catch(() => []);
+    return extractArrayPayload(adminSedes)
+      .map(normalizeSede)
+      .filter((item): item is MechanicWorkingSede => Boolean(item));
   }
 
   async getMechanicSchedules(mechanicId: string): Promise<DaySchedule[]> {
@@ -105,11 +140,9 @@ class MechanicSedeService {
     // GET /mechanics/:id/sedes is the only valid endpoint (mechanics.controller.ts)
     try {
       const response = await apiService.get(`/mechanics/${mechanicId}/sedes`);
-      if (Array.isArray(response)) {
-        return response
-          .map(normalizeSede)
-          .filter((item): item is MechanicWorkingSede => Boolean(item));
-      }
+      return extractArrayPayload(response)
+        .map(normalizeSede)
+        .filter((item): item is MechanicWorkingSede => Boolean(item));
     } catch (_error) {
       // Endpoint unreachable.
     }
@@ -207,6 +240,7 @@ class MechanicSedeService {
     const endpoints = [
       `/mechanics/${mechanicId}/schedule?sedeId=${sedeId}`,
       `/mechanics/${mechanicId}/schedule`,
+      `/admin/mechanics/${mechanicId}/schedule`,
     ];
 
     for (const endpoint of endpoints) {
@@ -221,13 +255,32 @@ class MechanicSedeService {
   }
 
   async assignSedeToMechanic(mechanicId: string, sedeId: number) {
-    // PUT /mechanics/:id/sede is the canonical endpoint (mechanics.controller.ts)
-    const headers = { 'Content-Type': 'application/json' };
-    try {
-      return await apiService.put(`/mechanics/${mechanicId}/sede`, { sedeId });
-    } catch (_error) {
-      throw new Error('No se pudo asignar la sede seleccionada');
+    const payload = { sedeId };
+    const attempts: Array<{ method: 'put' | 'post'; endpoint: string; includeBody: boolean }> = [
+      { method: 'put', endpoint: `/mechanics/${mechanicId}/sede`, includeBody: true },
+      { method: 'post', endpoint: `/mechanics/${mechanicId}/sedes`, includeBody: true },
+      // Some backends bind sedeId from path only and reject JSON bodies for this route.
+      { method: 'post', endpoint: `/mechanics/${mechanicId}/sedes/${sedeId}`, includeBody: false },
+      { method: 'post', endpoint: `/mechanics/${mechanicId}/sedes/${sedeId}`, includeBody: true },
+    ];
+
+    for (const attempt of attempts) {
+      try {
+        if (attempt.method === 'put') {
+          return attempt.includeBody
+            ? await apiService.put(attempt.endpoint, payload)
+            : await apiService.put(attempt.endpoint);
+        }
+
+        return attempt.includeBody
+          ? await apiService.post(attempt.endpoint, payload)
+          : await apiService.post(attempt.endpoint);
+      } catch (_error) {
+        // Try next endpoint shape for compatibility.
+      }
     }
+
+    throw new Error('No se pudo asignar la sede seleccionada');
   }
 
   async validateSedeChange(mechanicId: string, sedeId: number): Promise<{ allowed: boolean; message?: string }> {

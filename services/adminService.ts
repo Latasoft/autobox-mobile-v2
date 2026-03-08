@@ -111,6 +111,15 @@ export interface Sede {
   activo?: boolean;
 }
 
+const normalizeArrayPayload = (payload: any): any[] => {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.items)) return payload.items;
+  if (Array.isArray(payload?.results)) return payload.results;
+  if (Array.isArray(payload?.sedes)) return payload.sedes;
+  return [];
+};
+
 class AdminService {
   private async getHeaders() {
     const token = await authService.getToken();
@@ -625,36 +634,63 @@ class AdminService {
   }
 
   async blockMechanicFromSede(mechanicId: string, sedeId: number, reason?: string): Promise<void> {
-    // POST /mechanics/:id/sedes/:sedeId/admin-block (mechanics.controller.ts)
     const headers = await this.getHeaders();
-    const response = await fetch(
+    const endpoints = [
+      `${API_URL}/mechanics/${mechanicId}/sedes/${sedeId}/block`,
+      `${API_URL}/admin/mechanics/${mechanicId}/sedes/${sedeId}/block`,
       `${API_URL}/mechanics/${mechanicId}/sedes/${sedeId}/admin-block`,
-      {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ reason }),
-      },
-    );
+    ];
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || 'No se pudo bloquear al mecánico de la sede seleccionada');
+    let lastError = 'No se pudo bloquear al mecánico de la sede seleccionada';
+    for (const endpoint of endpoints) {
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers,
+          ...(reason ? { body: JSON.stringify({ reason }) } : {}),
+        });
+
+        if (response.ok) return;
+
+        const errorData = await response.json().catch(() => ({}));
+        lastError = errorData.message || lastError;
+      } catch (_error) {
+        // Try next endpoint shape.
+      }
     }
+
+    throw new Error(lastError);
   }
 
   async changeMechanicSede(mechanicId: string, sedeId: number): Promise<void> {
-    // PUT /mechanics/:id/sede (mechanics.controller.ts)
     const headers = await this.getHeaders();
-    const response = await fetch(`${API_URL}/mechanics/${mechanicId}/sede`, {
-      method: 'PUT',
-      headers,
-      body: JSON.stringify({ sedeId }),
-    });
+    const attempts: Array<{ method: 'PUT' | 'POST'; endpoint: string; includeBody: boolean }> = [
+      { method: 'PUT', endpoint: `${API_URL}/mechanics/${mechanicId}/sede`, includeBody: true },
+      { method: 'POST', endpoint: `${API_URL}/mechanics/${mechanicId}/sedes`, includeBody: true },
+      // Compatibility with route handlers that only accept sedeId in path.
+      { method: 'POST', endpoint: `${API_URL}/mechanics/${mechanicId}/sedes/${sedeId}`, includeBody: false },
+      { method: 'POST', endpoint: `${API_URL}/mechanics/${mechanicId}/sedes/${sedeId}`, includeBody: true },
+    ];
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || 'No se pudo cambiar la sede del mecánico');
+    let lastError = 'No se pudo cambiar la sede del mecánico';
+    for (const attempt of attempts) {
+      try {
+        const response = await fetch(attempt.endpoint, {
+          method: attempt.method,
+          headers,
+          ...(attempt.includeBody ? { body: JSON.stringify({ sedeId }) } : {}),
+        });
+
+        if (response.ok) return;
+
+        const errorData = await response.json().catch(() => ({}));
+        lastError = errorData.message || lastError;
+      } catch (_error) {
+        // Try next endpoint shape.
+      }
     }
+
+    throw new Error(lastError);
   }
 
   // ==================== SEDES ====================
@@ -676,7 +712,8 @@ class AdminService {
       if (!response.ok) {
         throw new Error('Error al obtener sedes');
       }
-      return await response.json();
+      const payload = await response.json();
+      return normalizeArrayPayload(payload) as Sede[];
     } catch (error) {
       console.error('Error getSedes:', error);
       throw error;
