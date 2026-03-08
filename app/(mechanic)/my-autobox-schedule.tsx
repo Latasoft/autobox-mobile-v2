@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -66,6 +66,18 @@ export default function MechanicMyAutoboxScheduleScreen() {
     return map;
   };
 
+  const sanitizeSchedulesByAvailable = (
+    selected: Record<number, string[]>,
+    available: Record<number, string[]>
+  ): Record<number, string[]> => {
+    const sanitized = initializeMap();
+    DAYS.forEach((day) => {
+      const allowed = new Set(available[day.id] || []);
+      sanitized[day.id] = uniqueSorted((selected[day.id] || []).filter((slot) => allowed.has(slot)));
+    });
+    return sanitized;
+  };
+
   const loadData = async () => {
     if (!Number.isFinite(sedeId)) {
       Alert.alert('Error', 'Sede inválida');
@@ -85,7 +97,7 @@ export default function MechanicMyAutoboxScheduleScreen() {
 
       setAvailableSlotsByDay(mapScheduleArray(sedeSchedule));
       // Step 2 must start with all blocks deselected and available for selection.
-      setSchedulesByDay(initializeMap());
+      setSchedulesByDay(sanitizeSchedulesByAvailable(initializeMap(), mapScheduleArray(sedeSchedule)));
 
       const otherSedes = workingSedes.filter((sede) => sede.id !== sedeId);
       const otherScheduleEntries = await Promise.all(
@@ -115,8 +127,7 @@ export default function MechanicMyAutoboxScheduleScreen() {
 
   const currentDaySlots = useMemo(() => {
     const available = availableSlotsByDay[selectedDay] || [];
-    const selected = schedulesByDay[selectedDay] || [];
-    return uniqueSorted([...available, ...selected]);
+    return uniqueSorted([...available]);
   }, [availableSlotsByDay, schedulesByDay, selectedDay]);
 
   const validateSlotForBusinessRules = (day: number, time: string, isSelecting: boolean) => {
@@ -158,6 +169,11 @@ export default function MechanicMyAutoboxScheduleScreen() {
 
   const toggleSlot = (time: string) => {
     setSchedulesByDay((prev) => {
+      const allowedSlots = new Set(availableSlotsByDay[selectedDay] || []);
+      if (!allowedSlots.has(time)) {
+        return prev;
+      }
+
       const current = prev[selectedDay] || [];
       const isSelected = current.includes(time);
 
@@ -198,8 +214,10 @@ export default function MechanicMyAutoboxScheduleScreen() {
 
     try {
       setSaving(true);
-      await mechanicSedeService.assignSedeToMechanic(mechanicId, sedeId);
       await mechanicSedeService.saveMechanicScheduleBySede(mechanicId, sedeId, buildSchedulePayload());
+
+      // Best effort: in some deployments this endpoint is unavailable for mechanic tokens.
+      await mechanicSedeService.assignSedeToMechanic(mechanicId, sedeId).catch(() => null);
 
       router.push({
         pathname: '/(mechanic)/my-autobox-success',

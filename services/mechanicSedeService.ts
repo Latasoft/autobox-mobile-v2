@@ -1,6 +1,5 @@
 import apiService from './apiService';
 import authService from './authService';
-import adminService from './adminService';
 import { Inspection } from '../types';
 
 export interface MechanicWorkingSede {
@@ -145,14 +144,32 @@ class MechanicSedeService {
     // GET /mechanics/:id/sedes is the only valid endpoint (mechanics.controller.ts)
     try {
       const response = await apiService.get(`/mechanics/${mechanicId}/sedes`);
-      return extractArrayPayload(response)
+      const direct = extractArrayPayload(response)
         .map(normalizeSede)
         .filter((item): item is MechanicWorkingSede => Boolean(item));
+
+      if (direct.length > 0) return direct;
     } catch (_error) {
       // Endpoint unreachable.
     }
 
-    return [];
+    // Fallback: infer assigned sedes from mechanic schedules when explicit assignment endpoint is unavailable.
+    const [catalog, schedules] = await Promise.all([
+      this.getSedesWithActiveSchedule().catch(() => []),
+      this.getMechanicSchedules(mechanicId).catch(() => []),
+    ]);
+
+    const inferredIds = Array.from(
+      new Set(
+        schedules
+          .map((item) => parseNumber(item?.sedeId))
+          .filter((item): item is number => Boolean(item)),
+      ),
+    );
+
+    return inferredIds
+      .map((id) => catalog.find((sede) => sede.id === id) || { id, nombre: `Autobox ${id}` })
+      .filter((item): item is MechanicWorkingSede => Boolean(item));
   }
 
   async getBlockedSedes(mechanicId?: string): Promise<number[]> {

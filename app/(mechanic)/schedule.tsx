@@ -70,14 +70,28 @@ export default function MechanicScheduleScreen() {
     return scheduleMap;
   };
 
+  const sanitizeByAvailableSlots = (
+    selectedMap: Record<number, string[]>,
+    availableMap: Record<number, string[]>
+  ): Record<number, string[]> => {
+    const sanitized = initializeScheduleMap();
+    DAYS.forEach((day) => {
+      const allowed = new Set(availableMap[day.id] || []);
+      sanitized[day.id] = uniqueSorted((selectedMap[day.id] || []).filter((slot) => allowed.has(slot)));
+    });
+    return sanitized;
+  };
+
   const loadSedeScheduleState = async (currentMechanicId: string, sedeId: number) => {
     const [sedeSchedule, mechanicSchedule] = await Promise.all([
       mechanicSedeService.getSedeSchedule(sedeId),
       mechanicSedeService.getMechanicScheduleBySede(currentMechanicId, sedeId),
     ]);
 
-    setAvailableSlots(mapFromApiSchedule(sedeSchedule));
-    setSchedules(mapFromApiSchedule(mechanicSchedule));
+    const availableMap = mapFromApiSchedule(sedeSchedule);
+    const selectedMap = mapFromApiSchedule(mechanicSchedule);
+    setAvailableSlots(availableMap);
+    setSchedules(sanitizeByAvailableSlots(selectedMap, availableMap));
   };
 
   const loadData = async () => {
@@ -154,10 +168,12 @@ export default function MechanicScheduleScreen() {
 
   const currentDaySlots = uniqueSorted([
     ...(availableSlots[selectedDay] || []),
-    ...(schedules[selectedDay] || []),
   ]);
 
   const toggleSlot = (time: string) => {
+    const allowed = new Set(availableSlots[selectedDay] || []);
+    if (!allowed.has(time)) return;
+
     setSchedules((prev) => {
       const currentSlots = prev[selectedDay] || [];
       const nextSlots = currentSlots.includes(time)

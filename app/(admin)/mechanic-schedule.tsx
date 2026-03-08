@@ -8,7 +8,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import adminService, { MechanicWorkingSede, MechanicSchedule } from '../../services/adminService';
 import { Screen } from '../../components/ui/Screen';
 import { Button } from '../../components/ui/Button';
@@ -50,17 +50,19 @@ const mapSchedules = (data: any[]) => {
   return map;
 };
 
-const fallbackThirtyMinuteBlocks = () => {
-  const blocks: string[] = [];
-  for (let hour = 8; hour <= 21; hour += 1) {
-    blocks.push(`${String(hour).padStart(2, '0')}:00`);
-    blocks.push(`${String(hour).padStart(2, '0')}:30`);
-  }
-  return blocks;
+const sanitizeBySedeSlots = (
+  selectedMap: Record<number, string[]>,
+  sedeMap: Record<number, string[]>
+) => {
+  const map = emptyMap();
+  DAYS.forEach((day) => {
+    const allowed = new Set(sedeMap[day.id] || []);
+    map[day.id] = uniqueSorted((selectedMap[day.id] || []).filter((slot) => allowed.has(slot)));
+  });
+  return map;
 };
 
 export default function AdminMechanicScheduleScreen() {
-  const router = useRouter();
   const { id, name } = useLocalSearchParams();
   const mechanicId = Array.isArray(id) ? id[0] : id;
   const mechanicName = Array.isArray(name) ? name[0] : name;
@@ -114,23 +116,12 @@ export default function AdminMechanicScheduleScreen() {
     });
 
     const mechanicMap = mapSchedules(mechanicForSede);
-    setCurrentSchedulesMap(mechanicMap);
 
     const sedeScheduleRaw = await adminService.getSedeSchedule(sedeId).catch(() => []);
     const sedeMap = mapSchedules(Array.isArray(sedeScheduleRaw) ? sedeScheduleRaw : []);
 
-    // If sede has no configured slots, keep default 30-min blocks editable.
-    if (Object.values(sedeMap).every((slots) => slots.length === 0)) {
-      const defaults = fallbackThirtyMinuteBlocks();
-      const map = emptyMap();
-      DAYS.forEach((day) => {
-        map[day.id] = defaults;
-      });
-      setSedeSlotsMap(map);
-      return;
-    }
-
     setSedeSlotsMap(sedeMap);
+    setCurrentSchedulesMap(sanitizeBySedeSlots(mechanicMap, sedeMap));
   };
 
   const init = async () => {
@@ -154,12 +145,7 @@ export default function AdminMechanicScheduleScreen() {
       if (sedesWithSchedule.length === 0) {
         setSelectedSedeId(null);
         setCurrentSchedulesMap(emptyMap());
-        const defaultMap = emptyMap();
-        const defaults = fallbackThirtyMinuteBlocks();
-        DAYS.forEach((day) => {
-          defaultMap[day.id] = defaults;
-        });
-        setSedeSlotsMap(defaultMap);
+        setSedeSlotsMap(emptyMap());
         return;
       }
 
@@ -184,12 +170,7 @@ export default function AdminMechanicScheduleScreen() {
   );
 
   const displayedSlots = useMemo(() => {
-    const base = sedeSlotsMap[selectedDay] || [];
-    const selected = currentSchedulesMap[selectedDay] || [];
-    const merged = uniqueSorted([...base, ...selected]);
-
-    if (merged.length > 0) return merged;
-    return fallbackThirtyMinuteBlocks();
+    return uniqueSorted([...(sedeSlotsMap[selectedDay] || [])]);
   }, [selectedDay, sedeSlotsMap, currentSchedulesMap]);
 
   const handleSedeChange = async (value: string) => {
@@ -200,6 +181,9 @@ export default function AdminMechanicScheduleScreen() {
   };
 
   const toggleSlot = (time: string) => {
+    const allowed = new Set(sedeSlotsMap[selectedDay] || []);
+    if (!allowed.has(time)) return;
+
     setCurrentSchedulesMap((prev) => {
       const current = prev[selectedDay] || [];
       const next = current.includes(time)
@@ -280,7 +264,7 @@ export default function AdminMechanicScheduleScreen() {
 
       <ScrollView style={styles.slotsContainer}>
         <Text style={styles.sectionTitle}>Bloques de horario</Text>
-        <Text style={styles.subtitle}>Puedes seleccionar o deseleccionar bloques en intervalos de 30 minutos.</Text>
+        <Text style={styles.subtitle}>Solo puedes seleccionar bloques configurados por la sede.</Text>
 
         <View style={styles.grid}>
           {displayedSlots.map((time) => {
@@ -297,6 +281,10 @@ export default function AdminMechanicScheduleScreen() {
             );
           })}
         </View>
+
+        {displayedSlots.length === 0 && (
+          <Text style={styles.emptySlotsText}>La sede no tiene bloques configurados para este día.</Text>
+        )}
       </ScrollView>
 
       <View style={styles.footer}>
@@ -394,6 +382,10 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#666',
     marginBottom: 16,
+  },
+  emptySlotsText: {
+    color: '#777',
+    textAlign: 'center',
   },
   grid: {
     flexDirection: 'row',
