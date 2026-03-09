@@ -16,8 +16,73 @@ export enum PaymentMethod {
   WEBPAY = 'WebPay',
   TRANSFER = 'Transferencia',
   CASH = 'Efectivo',
-  SALDO_AUTOBOX = 'Saldo AutoBox'
+  SALDO_AUTOBOX = 'Saldo AutoBox',
+  POS_SEDE = 'POS Sede'
 }
+
+export enum PosPaymentStatus {
+  PENDING = 'Pendiente',
+  CONFIRMED = 'Confirmado',
+  REJECTED = 'Rechazado',
+}
+
+export interface PosPaymentRequest {
+  id: string;
+  paymentId?: string;
+  status: PosPaymentStatus | string;
+  amount: number;
+  publicationId?: string;
+  inspectionId?: string;
+  requesterUserId: string;
+  requesterName?: string;
+  requesterEmail?: string;
+  sedeId?: number;
+  sedeName?: string;
+  requestedAt: string;
+  expiresAt?: string;
+  confirmedAt?: string;
+  rejectedAt?: string;
+  rejectionReason?: string;
+  metadata?: Record<string, any>;
+}
+
+export interface PosPaymentFilters {
+  status?: string;
+  date?: string;
+  sedeId?: number;
+}
+
+const parsePosStatus = (status: any): string => {
+  const normalized = String(status || '').toUpperCase();
+  if (normalized === 'PENDING' || normalized === 'PENDIENTE') return PosPaymentStatus.PENDING;
+  if (normalized === 'CONFIRMED' || normalized === 'CONFIRMADO') return PosPaymentStatus.CONFIRMED;
+  if (normalized === 'REJECTED' || normalized === 'RECHAZADO' || normalized === 'EXPIRED' || normalized === 'CADUCADO') return PosPaymentStatus.REJECTED;
+  return String(status || PosPaymentStatus.PENDING);
+};
+
+const normalizePosPayment = (item: any): PosPaymentRequest => {
+  const requester = item?.requester || item?.usuario || item?.user;
+  const sede = item?.sede;
+  return {
+    id: String(item?.id ?? item?.requestId ?? ''),
+    paymentId: item?.paymentId,
+    status: parsePosStatus(item?.status ?? item?.estado),
+    amount: Number(item?.amount ?? item?.monto ?? 0),
+    publicationId: item?.publicationId ?? item?.publicacionId,
+    inspectionId: item?.inspectionId ?? item?.inspeccionId,
+    requesterUserId: String(item?.requesterUserId ?? item?.usuarioId ?? requester?.id ?? ''),
+    requesterName: item?.requesterName ?? [requester?.primerNombre, requester?.primerApellido].filter(Boolean).join(' ') || requester?.nombre,
+    requesterEmail: item?.requesterEmail ?? requester?.email,
+    sedeId: Number(item?.sedeId ?? sede?.id),
+    sedeName: item?.sedeName ?? sede?.nombre,
+    requestedAt: item?.requestedAt ?? item?.fechaSolicitud ?? item?.createdAt ?? new Date().toISOString(),
+    expiresAt: item?.expiresAt ?? item?.fechaExpiracion,
+    confirmedAt: item?.confirmedAt ?? item?.fechaConfirmacion,
+    rejectedAt: item?.rejectedAt ?? item?.fechaRechazo,
+    rejectionReason: item?.rejectionReason ?? item?.motivoRechazo,
+    metadata: item?.metadata,
+  };
+};
 
 export interface Payment {
   id: string;
@@ -97,6 +162,133 @@ function normalizeMechanicPayment(item: MechanicPayment): MechanicPayment {
 }
 
 const paymentService = {
+
+  async requestInSedePosPayment(payload: {
+    amount: number;
+    sedeId: number;
+    publicationId?: string;
+    inspectionId?: string;
+    expiresAt?: string;
+    metadata?: Record<string, any>;
+  }): Promise<PosPaymentRequest> {
+    const endpoints = ['/payments/pos/requests', '/payments/pos/request', '/payments/pos'];
+    let lastError: any;
+
+    for (const endpoint of endpoints) {
+      try {
+        const response = await apiService.post(endpoint, payload);
+        return normalizePosPayment(response);
+      } catch (error: any) {
+        lastError = error;
+      }
+    }
+
+    throw lastError || new Error('No se pudo crear la solicitud de pago POS');
+  },
+
+  async getPosPaymentRequests(filters: PosPaymentFilters = {}): Promise<PosPaymentRequest[]> {
+    const params = new URLSearchParams();
+    if (filters.status && filters.status !== 'all') params.append('status', filters.status);
+    if (filters.date) params.append('date', filters.date);
+    if (filters.sedeId !== undefined) params.append('sedeId', String(filters.sedeId));
+    const query = params.toString() ? `?${params.toString()}` : '';
+
+    const endpoints = [`/payments/pos/requests${query}`, `/payments/pos${query}`, `/admin/pos-payments${query}`];
+    for (const endpoint of endpoints) {
+      try {
+        const response = await apiService.get(endpoint);
+        const list = Array.isArray(response)
+          ? response
+          : Array.isArray(response?.data)
+          ? response.data
+          : Array.isArray(response?.items)
+          ? response.items
+          : [];
+        return list.map(normalizePosPayment);
+      } catch {
+        // Try next endpoint shape
+      }
+    }
+    return [];
+  },
+
+  async getPosPaymentRequestById(requestId: string): Promise<PosPaymentRequest | null> {
+    const endpoints = [
+      `/payments/pos/requests/${requestId}`,
+      `/payments/pos/${requestId}`,
+      `/admin/pos-payments/${requestId}`,
+    ];
+
+    for (const endpoint of endpoints) {
+      try {
+        const response = await apiService.get(endpoint);
+        if (response) return normalizePosPayment(response);
+      } catch {
+        // Try next endpoint.
+      }
+    }
+
+    return null;
+  },
+
+  async confirmPosPaymentRequest(requestId: string): Promise<PosPaymentRequest> {
+    const endpoints = [
+      `/payments/pos/requests/${requestId}/confirm`,
+      `/payments/pos/${requestId}/confirm`,
+      `/admin/pos-payments/${requestId}/confirm`,
+    ];
+    let lastError: any;
+
+    for (const endpoint of endpoints) {
+      try {
+        const response = await apiService.patch(endpoint, {});
+        return normalizePosPayment(response);
+      } catch (error: any) {
+        lastError = error;
+      }
+    }
+
+    throw lastError || new Error('No se pudo confirmar el pago POS');
+  },
+
+  async rejectPosPaymentRequest(requestId: string, reason?: string): Promise<PosPaymentRequest> {
+    const endpoints = [
+      `/payments/pos/requests/${requestId}/reject`,
+      `/payments/pos/${requestId}/reject`,
+      `/admin/pos-payments/${requestId}/reject`,
+    ];
+    let lastError: any;
+
+    for (const endpoint of endpoints) {
+      try {
+        const response = await apiService.patch(endpoint, { reason });
+        return normalizePosPayment(response);
+      } catch (error: any) {
+        lastError = error;
+      }
+    }
+
+    throw lastError || new Error('No se pudo rechazar el pago POS');
+  },
+
+  async expirePosPaymentRequest(requestId: string): Promise<PosPaymentRequest | null> {
+    const endpoints = [
+      `/payments/pos/requests/${requestId}/expire`,
+      `/payments/pos/${requestId}/expire`,
+      `/admin/pos-payments/${requestId}/expire`,
+    ];
+
+    for (const endpoint of endpoints) {
+      try {
+        const response = await apiService.patch(endpoint, {});
+        return normalizePosPayment(response);
+      } catch {
+        // Try next endpoint.
+      }
+    }
+
+    return null;
+  },
 
   // ---------------------------------------------------------
   // 1. GESTIÓN DE PAGOS (HISTORIAL)

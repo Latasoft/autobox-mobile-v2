@@ -12,6 +12,7 @@ import walletService from '../../../services/walletService';
 import uploadService from '../../../services/uploadService';
 import { useWallet } from '../../../hooks/useWallet';
 import { PAYMENT_API_URL } from '../../../constants/Config';
+import paymentService, { PosPaymentRequest } from '../../../services/paymentService';
 
 // Configuración de reintentos
 const MAX_RETRIES = 2;
@@ -42,6 +43,12 @@ export default function PaymentGatewayScreen() {
   const [reconciliationNeeded, setReconciliationNeeded] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
   const [pollingAttempts, setPollingAttempts] = useState(0);
+  const [posRequest, setPosRequest] = useState<PosPaymentRequest | null>(null);
+  const [posFlowState, setPosFlowState] = useState<'creating' | 'awaiting_user_confirmation' | 'waiting_admin_confirmation' | 'confirmed' | 'rejected' | 'expired' | 'error'>('creating');
+  const [posFlowError, setPosFlowError] = useState<string | null>(null);
+  const [posExpiresAt, setPosExpiresAt] = useState<string | null>(null);
+  const posPollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const posCompletionHandledRef = useRef(false);
   const isCancelledRef = useRef(false);
   const lastHandledReturnUrlRef = useRef<string | null>(null);
   const bankSuccessEvidenceRef = useRef(false);
@@ -77,6 +84,8 @@ export default function PaymentGatewayScreen() {
   const isLandscape = width > height;
 
   const { amount, description, serviceType, metadata } = params;
+  const serviceTypeStr = Array.isArray(serviceType) ? serviceType[0] : serviceType;
+  const isPosInSedeFlow = serviceTypeStr === 'publication_with_inspection_pos';
 
   const logPaymentEvent = (event: string, data?: any, level: 'info' | 'warn' | 'error' = 'info') => {
     const timestamp = new Date().toISOString();
@@ -170,6 +179,40 @@ export default function PaymentGatewayScreen() {
       }
     };
   }, [reconciliationNeeded, paymentStatus]);
+
+  useEffect(() => {
+    if (!isPosInSedeFlow) return;
+
+    void initializePosRequest();
+
+    return () => {
+      if (posPollingIntervalRef.current) {
+        clearInterval(posPollingIntervalRef.current);
+        posPollingIntervalRef.current = null;
+      }
+    };
+  }, [isPosInSedeFlow]);
+
+  useEffect(() => {
+    if (!isPosInSedeFlow || !posExpiresAt || !posRequest?.id) return;
+    if (!(posFlowState === 'awaiting_user_confirmation' || posFlowState === 'waiting_admin_confirmation')) return;
+
+    const msLeft = new Date(posExpiresAt).getTime() - Date.now();
+    if (msLeft <= 0) {
+      void paymentService.expirePosPaymentRequest(posRequest.id).catch(() => null);
+      setPosFlowState('expired');
+      stopPosPolling();
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      void paymentService.expirePosPaymentRequest(posRequest.id).catch(() => null);
+      setPosFlowState('expired');
+      stopPosPolling();
+    }, msLeft);
+
+    return () => clearTimeout(timeoutId);
+  }, [isPosInSedeFlow, posExpiresAt, posFlowState, posRequest?.id]);
 
   const loadPrices = async () => {
     try {
@@ -754,6 +797,120 @@ export default function PaymentGatewayScreen() {
     }
   };
 
+  const stopPosPolling = () => {
+    if (posPollingIntervalRef.current) {
+      clearInterval(posPollingIntervalRef.current);
+      posPollingIntervalRef.current = null;
+    }
+  };
+
+  const initializePosRequest = async () => {
+    try {
+      setLoading(true);
+      setPosFlowError(null);
+      setPosFlowState('creating');
+
+      if (!metadata) {
+        throw new Error('No se encontró metadata para crear la solicitud POS');
+      }
+
+      const metadataStr = Array.isArray(metadata) ? metadata[0] : metadata;
+      if (!metadataStr) {
+        throw new Error('Metadata inválida');
+      }
+
+      const parsedMetadata = JSON.parse(metadataStr);
+      const sedeId = Number(parsedMetadata?.inspectionLocation);
+      if (!Number.isFinite(sedeId)) {
+        throw new Error('No se pudo identificar la sede de inspección');
+      }
+
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+      const request = await paymentService.requestInSedePosPayment({
+        amount: Number(amount) || 0,
+        sedeId,
+        expiresAt,
+        metadata: parsedMetadata,
+      });
+
+      setPosRequest(request);
+      setPosExpiresAt(request.expiresAt || expiresAt);
+      setPosFlowState('awaiting_user_confirmation');
+    } catch (error: any) {
+      console.error('❌ Error creating POS request:', error);
+      setPosFlowError(error?.message || 'No se pudo iniciar el pago en sede');
+      setPosFlowState('error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePosRequestConfirmed = async () => {
+    if (!posRequest || posCompletionHandledRef.current) return;
+
+    try {
+      posCompletionHandledRef.current = true;
+      setLoading(true);
+      await processSuccessfulPayment(posRequest.paymentId);
+      setPosFlowState('confirmed');
+      stopPosPolling();
+    } catch (error: any) {
+      console.error('❌ Error finishing POS payment flow:', error);
+      setPosFlowError(error?.message || 'El pago fue confirmado, pero no se pudo finalizar el proceso');
+      setPosFlowState('error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const checkPosRequestStatus = async () => {
+    if (!posRequest?.id || posCompletionHandledRef.current) return;
+
+    try {
+      const current = await paymentService.getPosPaymentRequestById(posRequest.id);
+      if (!current) return;
+
+      setPosRequest(current);
+      if (current.expiresAt) {
+        setPosExpiresAt(current.expiresAt);
+      }
+
+      const status = String(current.status || '').toUpperCase();
+      if (status === 'CONFIRMED' || status === 'CONFIRMADO') {
+        await handlePosRequestConfirmed();
+        return;
+      }
+
+      if (status === 'REJECTED' || status === 'RECHAZADO') {
+        setPosFlowState('rejected');
+        stopPosPolling();
+        return;
+      }
+
+      const expiration = current.expiresAt || posExpiresAt;
+      if (expiration && new Date(expiration).getTime() <= Date.now()) {
+        await paymentService.expirePosPaymentRequest(current.id).catch(() => null);
+        setPosFlowState('expired');
+        stopPosPolling();
+      }
+    } catch (error: any) {
+      console.warn('⚠️ Error polling POS request:', error?.message);
+    }
+  };
+
+  const handlePosPaymentButtonPress = async () => {
+    if (!posRequest) return;
+
+    setPosFlowState('waiting_admin_confirmation');
+    await checkPosRequestStatus();
+
+    if (!posPollingIntervalRef.current) {
+      posPollingIntervalRef.current = setInterval(() => {
+        void checkPosRequestStatus();
+      }, 4000);
+    }
+  };
+
   const handlePayment = async () => {
 
     setLoading(true);
@@ -1303,7 +1460,7 @@ export default function PaymentGatewayScreen() {
         throw new Error('Error al crear la publicación');
       }
 
-      if (serviceTypeStr === 'publication_with_inspection') {
+      if (serviceTypeStr === 'publication_with_inspection' || serviceTypeStr === 'publication_with_inspection_pos') {
         const { inspectionDate, inspectionTime, inspectionLocation, horarioId } = vehicleData;
 
         let fechaProgramada = new Date().toISOString();
@@ -1381,6 +1538,78 @@ export default function PaymentGatewayScreen() {
   };
 
   const renderContent = () => {
+    if (isPosInSedeFlow) {
+      const showActionButton = posFlowState === 'awaiting_user_confirmation';
+      const waitingAdmin = posFlowState === 'waiting_admin_confirmation';
+      const isRejected = posFlowState === 'rejected' || posFlowState === 'expired';
+
+      if (posFlowState === 'confirmed') {
+        return (
+          <View style={styles.centerContainer}>
+            <Ionicons name="checkmark-circle" size={80} color="#4CAF50" />
+            <Text style={styles.successTitle}>Pago confirmado</Text>
+            <Text style={styles.successText}>Un administrador confirmó tu pago en sede.</Text>
+            <Button
+              title="Continuar"
+              onPress={() => {
+                router.dismissAll();
+                router.replace('/(tabs)');
+              }}
+              style={styles.homeButton}
+            />
+          </View>
+        );
+      }
+
+      if (isRejected) {
+        return (
+          <View style={styles.centerContainer}>
+            <Ionicons name="close-circle" size={80} color="#F44336" />
+            <Text style={styles.successTitle}>{posFlowState === 'expired' ? 'Solicitud caducada' : 'Pago rechazado'}</Text>
+            <Text style={styles.successText}>
+              {posFlowState === 'expired'
+                ? 'La solicitud de pago POS superó el tiempo máximo de 5 minutos.'
+                : 'Un administrador rechazó tu pago en sede.'}
+            </Text>
+            <Button title="Volver" onPress={() => router.back()} style={styles.homeButton} />
+          </View>
+        );
+      }
+
+      if (posFlowState === 'error') {
+        return (
+          <View style={styles.centerContainer}>
+            <Ionicons name="alert-circle" size={80} color="#FF9800" />
+            <Text style={styles.successTitle}>No se pudo iniciar el pago en sede</Text>
+            <Text style={styles.successText}>{posFlowError || 'Intenta nuevamente en unos segundos.'}</Text>
+            <Button title="Reintentar" onPress={() => { void initializePosRequest(); }} style={styles.homeButton} />
+          </View>
+        );
+      }
+
+      return (
+        <View style={styles.centerContainer}>
+          <ActivityIndicator size="large" color="#4CAF50" />
+          <Text style={styles.loadingText}>Procesando pago en sede...</Text>
+          {!!posExpiresAt && (
+            <Text style={styles.posExpirationText}>Válido hasta: {new Date(posExpiresAt).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}</Text>
+          )}
+
+          {showActionButton && (
+            <Button
+              title="Presiona aquí cuando hagas efectuado el pago en el comercio"
+              onPress={() => { void handlePosPaymentButtonPress(); }}
+              style={styles.posActionButton}
+            />
+          )}
+
+          {waitingAdmin && (
+            <Text style={styles.posWaitingText}>Espere hasta que un administrador confirme su pago</Text>
+          )}
+        </View>
+      );
+    }
+
     if ((loading || paymentStatus === 'verifying') && !webviewVisible) {
       return (
         <View style={styles.centerContainer}>
@@ -1801,6 +2030,22 @@ const styles = StyleSheet.create({
   payButton: {
     marginTop: 'auto',
     marginBottom: 16,
+  },
+  posActionButton: {
+    marginTop: 18,
+    width: '100%',
+  },
+  posWaitingText: {
+    marginTop: 18,
+    fontSize: 16,
+    color: '#2E7D32',
+    textAlign: 'center',
+    fontWeight: '600',
+  },
+  posExpirationText: {
+    marginTop: 10,
+    fontSize: 13,
+    color: '#FF9800',
   },
   webviewHeader: {
       height: 50,

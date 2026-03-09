@@ -370,7 +370,7 @@ export function usePublishWithInspection() {
     }
   };
 
-  const handleSubmit = async () => {
+  const submitWithServiceType = async (serviceType: 'publication_with_inspection' | 'publication_with_inspection_pos', description: string) => {
     setLoading(true);
     try {
       // Upload images first
@@ -396,8 +396,8 @@ export function usePublishWithInspection() {
         pathname: '/(tabs)/publish/payment-gateway',
         params: {
           amount: (Number(inspectionPrice) + Number(publicationPrice)).toString(),
-          description: 'Inspección + Publicación Premium',
-          serviceType: 'publication_with_inspection',
+          description,
+          serviceType,
           metadata: JSON.stringify(vehicleData)
         }
       });
@@ -408,6 +408,14 @@ export function usePublishWithInspection() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSubmit = async () => {
+    await submitWithServiceType('publication_with_inspection', 'Inspección + Publicación Premium');
+  };
+
+  const handleSubmitInSede = async () => {
+    await submitWithServiceType('publication_with_inspection_pos', 'Inspección + Publicación en sede');
   };
 
   return {
@@ -429,6 +437,7 @@ export function usePublishWithInspection() {
     handleNext,
     handleBack,
     handleSubmit,
+    handleSubmitInSede,
     inspectionPrice,
     publicationPrice,
     autoBoxLocations,

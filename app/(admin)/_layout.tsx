@@ -343,6 +343,15 @@ export default function AdminLayout() {
           }} 
         />
         <Tabs.Screen 
+          name="pos-payments" 
+          options={{
+            title: 'Pagos POS',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="card" size={size} color={color} />
+            ),
+          }} 
+        />
+        <Tabs.Screen 
           name="all-mechanic-payments" 
           options={{
             title: 'Pagos Mec.',

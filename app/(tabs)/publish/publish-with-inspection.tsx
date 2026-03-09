@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator, TouchableOpacity, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../../../components/ui/Screen';
@@ -30,6 +30,7 @@ export default function PublishWithInspectionScreen() {
     handleNext,
     handleBack,
     handleSubmit,
+    handleSubmitInSede,
     inspectionPrice,
     publicationPrice,
     autoBoxLocations,
@@ -373,6 +374,25 @@ export default function PublishWithInspectionScreen() {
               disabled={(currentStep === 1 && !plateValid) || (currentStep === 6 && (!formData.inspectionLocation || !formData.inspectionDate || !formData.inspectionTime))}
             />
           </View>
+
+          {currentStep === totalSteps && (
+            <TouchableOpacity
+              style={styles.payInSedeButton}
+              activeOpacity={0.85}
+              onPress={() => {
+                Alert.alert(
+                  'Pago en sede',
+                  'Este tipo de pago solo se puede concretar estando en una sede. ¿Desea continuar?',
+                  [
+                    { text: 'No', style: 'cancel' },
+                    { text: 'Sí', onPress: () => { void handleSubmitInSede(); } },
+                  ]
+                );
+              }}
+            >
+              <Text style={styles.payInSedeButtonText}>Pagar en sede</Text>
+            </TouchableOpacity>
+          )}
         </ScrollView>
       </KeyboardAvoidingView>
     </Screen>
@@ -436,6 +456,21 @@ const styles = StyleSheet.create({
   },
   navButton: {
     flex: 1,
+  },
+  payInSedeButton: {
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#4CAF50',
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  payInSedeButtonText: {
+    color: '#2E7D32',
+    fontSize: 16,
+    fontWeight: '700',
   },
   priceSection: {
     backgroundColor: 'white',
