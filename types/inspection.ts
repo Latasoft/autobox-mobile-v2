@@ -15,6 +15,21 @@ export interface Inspection {
   rating?: number;
   answers?: Record<string, string>;
   comments?: Record<string, string>;
+  textAnswers?: Record<string, string>;
+  mediaUrls?: Record<string, string>;
+  reportUrl?: string;
+  report_url?: string;
+  inspectionPdfUrl?: string;
+  pdf_url?: string;
+  inspectionAnswers?: Array<{
+    preguntaId?: number | string;
+    respuestaTextoManual?: string;
+    imagen_url?: string;
+    pregunta?: {
+      id?: number | string;
+      codigo?: string;
+    };
+  }>;
   
   // Relaciones (opcionales dependiendo de la query)
   solicitante?: {

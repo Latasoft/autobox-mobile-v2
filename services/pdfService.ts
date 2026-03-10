@@ -2,6 +2,68 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { Inspection } from '../types/inspection';
 import { INSPECTION_SECTIONS } from '../constants/InspectionForm';
+import apiService from './apiService';
+
+const NOT_EXAMINED_TEXT = 'Aspecto no examinado';
+
+const escapeHtml = (value: unknown): string => {
+  if (value === null || value === undefined) return '';
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+};
+
+const pickReportUrl = (inspection: Inspection): string | undefined => {
+  const candidates = [
+    inspection.reportUrl,
+    inspection.report_url,
+    inspection.inspectionPdfUrl,
+    inspection.pdf_url,
+    (inspection as any)?.report?.url,
+    (inspection as any)?.informeUrl,
+    (inspection as any)?.informe_url,
+  ];
+
+  return candidates.find((candidate) => typeof candidate === 'string' && candidate.trim().length > 0);
+};
+
+const buildQuestionMaps = (inspection: Inspection) => {
+  const answerMap: Record<string, string> = { ...(inspection.answers || {}) };
+  const commentMap: Record<string, string> = {
+    ...(inspection.comments || {}),
+    ...(inspection.textAnswers || {}),
+  };
+  const mediaMap: Record<string, string> = { ...(inspection.mediaUrls || {}) };
+
+  const inspectionAnswers = Array.isArray(inspection.inspectionAnswers) ? inspection.inspectionAnswers : [];
+  inspectionAnswers.forEach((row: any) => {
+    const idCandidates = [
+      row?.pregunta?.codigo,
+      row?.preguntaId,
+      row?.pregunta?.id,
+      row?.questionId,
+      row?.id,
+    ]
+      .map((entry: any) => (entry !== undefined && entry !== null ? String(entry) : ''))
+      .filter(Boolean);
+
+    // Prefer IDs that look like the constant question format (e.g. 1.1, 2.13).
+    const questionId = idCandidates.find((entry: string) => /^\d+\.\d+$/.test(entry)) || idCandidates[0];
+    if (!questionId) return;
+
+    if (!commentMap[questionId] && typeof row?.respuestaTextoManual === 'string') {
+      commentMap[questionId] = row.respuestaTextoManual;
+    }
+    if (!mediaMap[questionId] && typeof row?.imagen_url === 'string') {
+      mediaMap[questionId] = row.imagen_url;
+    }
+  });
+
+  return { answerMap, commentMap, mediaMap };
+};
 
 export const generateInspectionHtml = (inspection: Inspection) => {
   const vehicle = inspection.vehiculo || inspection.publicacion?.vehiculo;
@@ -9,8 +71,9 @@ export const generateInspectionHtml = (inspection: Inspection) => {
   const date = inspection.fechaCompletada 
     ? new Date(inspection.fechaCompletada).toLocaleDateString() 
     : new Date().toLocaleDateString();
+  const reportUrl = pickReportUrl(inspection);
+  const { answerMap, commentMap, mediaMap } = buildQuestionMaps(inspection);
 
-  // Helper to find question text and answer text
   const getAnswerDetails = (questionId: string, value: string) => {
     for (const section of INSPECTION_SECTIONS) {
       for (const q of section.questions) {
@@ -27,49 +90,48 @@ export const generateInspectionHtml = (inspection: Inspection) => {
   };
 
   let questionsHtml = '';
-  
-  // Assuming answers is an object like { "1.1": "a", "1.2": "b" }
-  if (inspection.answers) {
-    // Sort keys to maintain order roughly if possible, or iterate sections
-    INSPECTION_SECTIONS.forEach(section => {
-      const sectionQuestions = section.questions.filter(q => inspection.answers[q.id]);
-      
-      if (sectionQuestions.length > 0) {
-        questionsHtml += `
-          <div class="section">
-            <h3>${section.title}</h3>
-            ${sectionQuestions.map(q => {
-              const val = inspection.answers[q.id];
-              const details = getAnswerDetails(q.id, val);
-              const color = val === 'a' ? '#4CAF50' : val === 'b' ? '#FFC107' : '#F44336';
-              return `
-                <div class="question-row">
-                  <div class="question-text">${details.question}</div>
-                  <div class="answer-text" style="color: ${color}">${details.answer}</div>
-                </div>
-              `;
-            }).join('')}
-          </div>
-        `;
-      }
-    });
 
-    // Handle comments if any (Assuming comments is object { "1.1": "text" })
-    if (inspection.comments) {
-        questionsHtml += `<div class="section"><h3>Comentarios Técnicos</h3>`;
-        Object.entries(inspection.comments).forEach(([k, v]) => {
-            if (!v) return;
-             // Try to find question title
-            const details = getAnswerDetails(k, '');
-            questionsHtml += `
-            <div class="comment-row">
-                <div class="comment-label">Ref: ${details.question.substring(0, 50)}...</div>
-                <div class="comment-text">${v}</div>
-            </div>`;
-        });
-        questionsHtml += `</div>`;
-    }
-  }
+  INSPECTION_SECTIONS.forEach((section) => {
+    questionsHtml += `
+      <div class="section">
+        <h3>${escapeHtml(section.title)}</h3>
+        ${section.questions
+          .map((question) => {
+            const answerValue = answerMap[question.id];
+            const commentValue = commentMap[question.id]?.trim();
+            const photoUrl = mediaMap[question.id];
+            const answerDetails = answerValue ? getAnswerDetails(question.id, answerValue) : null;
+
+            const answerText = answerDetails?.answer || NOT_EXAMINED_TEXT;
+            const answerColor = !answerValue
+              ? '#9E9E9E'
+              : answerValue === 'a'
+              ? '#2E7D32'
+              : answerValue === 'b'
+              ? '#EF6C00'
+              : '#C62828';
+
+            return `
+              <div class="question-row">
+                <div class="question-text">${escapeHtml(question.text)}</div>
+                <div class="answer-text" style="color: ${answerColor}">
+                  ${escapeHtml(answerText)}
+                </div>
+                <div class="meta-label">Comentario técnico</div>
+                <div class="meta-text ${commentValue ? '' : 'placeholder'}">
+                  ${escapeHtml(commentValue || NOT_EXAMINED_TEXT)}
+                </div>
+                <div class="meta-label">Registro fotográfico</div>
+                ${photoUrl
+                  ? `<img class="photo" src="${escapeHtml(photoUrl)}" alt="Foto ${escapeHtml(question.id)}" />`
+                  : `<div class="meta-text placeholder">${NOT_EXAMINED_TEXT}</div>`}
+              </div>
+            `;
+          })
+          .join('')}
+      </div>
+    `;
+  });
 
   const html = `
 <!DOCTYPE html>
@@ -90,9 +152,15 @@ export const generateInspectionHtml = (inspection: Inspection) => {
       .section { margin-bottom: 25px; border-bottom: 1px solid #eee; padding-bottom: 15px; }
       .section h3 { margin: 0 0 10px 0; font-size: 16px; background: #E65100; color: white; padding: 5px 10px; border-radius: 4px; }
       
-      .question-row { margin-bottom: 12px; padding-left: 10px; }
+      .question-row { margin-bottom: 12px; padding: 10px; border: 1px solid #eee; border-radius: 8px; }
       .question-text { font-size: 12px; font-weight: bold; margin-bottom: 2px; }
       .answer-text { font-size: 12px; }
+      .meta-label { font-size: 11px; color: #666; margin-top: 8px; font-weight: bold; }
+      .meta-text { font-size: 12px; margin-top: 2px; }
+      .placeholder { color: #9E9E9E; font-style: italic; }
+      .photo { margin-top: 8px; width: 220px; height: 160px; object-fit: cover; border-radius: 6px; border: 1px solid #DDD; }
+      .attachment { margin-top: 20px; padding: 12px; background: #FFF8E1; border: 1px solid #FFE082; border-radius: 8px; }
+      .attachment a { color: #E65100; text-decoration: none; word-break: break-all; }
 
       .score-summary { text-align: right; font-size: 18px; font-weight: bold; margin-top: 20px; }
       
@@ -129,7 +197,10 @@ export const generateInspectionHtml = (inspection: Inspection) => {
     </div>
 
     <div class="content">
-      ${questionsHtml || '<p>No hay respuestas registradas.</p>'}
+      ${questionsHtml}
+      ${reportUrl
+        ? `<div class="attachment"><strong>PDF adjunto por mecánico:</strong><br/><a href="${escapeHtml(reportUrl)}">${escapeHtml(reportUrl)}</a></div>`
+        : `<div class="attachment"><strong>PDF adjunto por mecánico:</strong><br/><span class="placeholder">${NOT_EXAMINED_TEXT}</span></div>`}
     </div>
 
     <div class="footer">
@@ -143,7 +214,17 @@ export const generateInspectionHtml = (inspection: Inspection) => {
 
 export const downloadInspectionPdf = async (inspection: Inspection) => {
   try {
-    const html = generateInspectionHtml(inspection);
+    let inspectionForPdf = inspection;
+    try {
+      const fullInspection = await apiService.get(`/inspections/${inspection.id}`);
+      if (fullInspection && typeof fullInspection === 'object') {
+        inspectionForPdf = { ...inspection, ...(fullInspection as Inspection) };
+      }
+    } catch {
+      // Fallback to available data when detailed fetch fails.
+    }
+
+    const html = generateInspectionHtml(inspectionForPdf);
     const { uri } = await Print.printToFileAsync({ html });
     await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
   } catch (error) {
