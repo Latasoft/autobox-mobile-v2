@@ -32,11 +32,22 @@ const pickReportUrl = (inspection: Inspection): string | undefined => {
 
 const buildQuestionMaps = (inspection: Inspection) => {
   const answerMap: Record<string, string> = { ...(inspection.answers || {}) };
+
+  // Strip internal metadata keys before spreading comments as text answers.
+  const rawComments = { ...(inspection.comments || {}) };
+  delete (rawComments as any).__finalAttachmentUrl;
+  delete (rawComments as any).mediaUrls;
   const commentMap: Record<string, string> = {
-    ...(inspection.comments || {}),
+    ...rawComments,
     ...(inspection.textAnswers || {}),
   };
-  const mediaMap: Record<string, string> = { ...(inspection.mediaUrls || {}) };
+
+  // Backend stores per-question media inside inspection.comments.mediaUrls (nested)
+  // during completeInspection. Fall back to the top-level mediaUrls column if present.
+  const mediaMap: Record<string, string> = {
+    ...((inspection.comments as any)?.mediaUrls || {}),
+    ...(inspection.mediaUrls || {}),
+  };
 
   const inspectionAnswers = Array.isArray(inspection.inspectionAnswers) ? inspection.inspectionAnswers : [];
   inspectionAnswers.forEach((row: any) => {

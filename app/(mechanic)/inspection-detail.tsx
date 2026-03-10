@@ -185,11 +185,21 @@ export default function InspectionDetailScreen() {
       setInspection(data);
 
       const nextAnswers = { ...(data?.answers || {}) };
+      // Strip the internal __finalAttachmentUrl and nested mediaUrls keys from comments
+      // before spreading so only text-answer keys remain.
+      const rawComments = { ...(data?.comments || {}) };
+      delete (rawComments as any).__finalAttachmentUrl;
+      delete (rawComments as any).mediaUrls;
       const nextTextAnswers = {
-        ...(data?.comments || {}),
+        ...rawComments,
         ...(data?.textAnswers || {}),
       };
-      const nextMediaUrls = { ...(data?.mediaUrls || {}) };
+      // Backend stores per-question media inside inspection.comments.mediaUrls (nested).
+      // Also fall back to the top-level mediaUrls JSON column if present.
+      const nextMediaUrls = {
+        ...(data?.comments?.mediaUrls || {}),
+        ...(data?.mediaUrls || {}),
+      };
 
       const inspectionAnswers = Array.isArray(data?.inspectionAnswers) ? data.inspectionAnswers : [];
       inspectionAnswers.forEach((entry: any) => {
@@ -268,6 +278,9 @@ export default function InspectionDetailScreen() {
         textAnswers,
         comments: textAnswers,
         mediaUrls,
+        // Backend resolveFinalAttachmentUrl checks these specific keys:
+        pdfUrl: reportUrl,
+        finalAttachmentUrl: reportUrl,
         reportUrl,
         inspectionPdfUrl: reportUrl,
       });
@@ -592,6 +605,28 @@ export default function InspectionDetailScreen() {
               textStyle={{ color: '#F44336' }}
             />
           </View>
+        )}
+
+        {inspection.estado_insp === 'Rechazada' && (
+          <Card style={[styles.completedCard, { borderColor: '#F44336', borderWidth: 1 }]}>
+            <Ionicons name="close-circle-outline" size={48} color="#F44336" />
+            <Text style={[styles.completedText, { color: '#F44336' }]}>Inspeccion Rechazada / Cancelada</Text>
+            <Text style={{ textAlign: 'center', marginBottom: 8, fontWeight: 'bold' }}>
+              Motivo:{' '}
+              {inspection.cancellationReason === 'cancelado_admin'
+                ? 'Cancelado por Admin'
+                : inspection.cancellationReason === 'cancelado_dueno'
+                ? 'Cancelado por Dueño'
+                : inspection.cancellationReason === 'cancelado_vend'
+                ? 'Cancelado por Solicitante'
+                : inspection.cancellationReason === 'cancelado_mec'
+                ? 'Cancelado por Mecanico'
+                : inspection.cancellationReason || 'No especificado'}
+            </Text>
+            {inspection.observacion ? (
+              <Text style={{ textAlign: 'center', color: '#666' }}>{inspection.observacion}</Text>
+            ) : null}
+          </Card>
         )}
 
         {inspection.estado_insp === 'Postergada' && (
