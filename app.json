@@ -24,8 +24,7 @@
       "package": "com.anonymous.autobox",
       "permissions": [
         "INTERNET"
-      ],
-      "usesCleartextTraffic": true
+      ]
     },
     "web": {
       "output": "static",

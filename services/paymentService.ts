@@ -71,7 +71,7 @@ const normalizePosPayment = (item: any): PosPaymentRequest => {
     publicationId: item?.publicationId ?? item?.publicacionId,
     inspectionId: item?.inspectionId ?? item?.inspeccionId,
     requesterUserId: String(item?.requesterUserId ?? item?.usuarioId ?? requester?.id ?? ''),
-    requesterName: item?.requesterName ?? [requester?.primerNombre, requester?.primerApellido].filter(Boolean).join(' ') || requester?.nombre,
+    requesterName: item?.requesterName ?? ([requester?.primerNombre, requester?.primerApellido].filter(Boolean).join(' ') || requester?.nombre),
     requesterEmail: item?.requesterEmail ?? requester?.email,
     sedeId: Number(item?.sedeId ?? sede?.id),
     sedeName: item?.sedeName ?? sede?.nombre,
