@@ -198,7 +198,7 @@ export default function InspectionDetailScreen() {
       // Backend stores per-question media inside inspection.comments.mediaUrls (nested).
       // Also fall back to the top-level mediaUrls JSON column if present.
       const nextMediaUrls = {
-        ...(data?.comments?.mediaUrls || {}),
+        ...((data?.comments?.mediaUrls as Record<string, string> | undefined) || {}),
         ...(data?.mediaUrls || {}),
       };
 

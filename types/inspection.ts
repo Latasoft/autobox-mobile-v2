@@ -14,13 +14,21 @@ export interface Inspection {
   valor: number;
   rating?: number;
   answers?: Record<string, string>;
-  comments?: Record<string, string>;
+  /**
+   * Backend stores per-question text answers AND two internal keys here:
+   *   - `__finalAttachmentUrl` (string): the mechanic's attached PDF URL
+   *   - `mediaUrls` (Record<string, string>): per-question photo URLs
+   * Use `Record<string, string | Record<string, string>>` to satisfy both shapes.
+   */
+  comments?: Record<string, string | Record<string, string>>;
   textAnswers?: Record<string, string>;
   mediaUrls?: Record<string, string>;
   reportUrl?: string;
   report_url?: string;
   inspectionPdfUrl?: string;
   pdf_url?: string;
+  /** Exposed by the backend's normalizeInspectionMedia from comments.__finalAttachmentUrl */
+  finalAttachmentUrl?: string;
   inspectionAnswers?: Array<{
     preguntaId?: number | string;
     respuestaTextoManual?: string;

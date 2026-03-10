@@ -34,19 +34,19 @@ const pickReportUrl = (inspection: Inspection): string | undefined => {
 const buildQuestionMaps = (inspection: Inspection) => {
   const answerMap: Record<string, string> = { ...(inspection.answers || {}) };
 
-  // Strip internal metadata keys before spreading comments as text answers.
-  const rawComments = { ...(inspection.comments || {}) };
-  delete (rawComments as any).__finalAttachmentUrl;
-  delete (rawComments as any).mediaUrls;
-  const commentMap: Record<string, string> = {
-    ...rawComments,
-    ...(inspection.textAnswers || {}),
-  };
+  // Strip internal metadata keys and keep only string values for the text-answer map.
+  const commentMap: Record<string, string> = {};
+  for (const [k, v] of Object.entries(inspection.comments || {})) {
+    if (k === '__finalAttachmentUrl' || k === 'mediaUrls') continue;
+    if (typeof v === 'string') commentMap[k] = v;
+  }
+  // textAnswers always wins over comments for the same key.
+  Object.assign(commentMap, inspection.textAnswers || {});
 
   // Backend stores per-question media inside inspection.comments.mediaUrls (nested)
   // during completeInspection. Fall back to the top-level mediaUrls column if present.
   const mediaMap: Record<string, string> = {
-    ...((inspection.comments as any)?.mediaUrls || {}),
+    ...((inspection.comments?.mediaUrls as Record<string, string> | undefined) || {}),
     ...(inspection.mediaUrls || {}),
   };
 
