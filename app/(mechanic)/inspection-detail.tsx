@@ -34,7 +34,8 @@ export default function InspectionDetailScreen() {
   const router = useRouter();
   const [inspection, setInspection] = useState<Inspection | null>(null);
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState<Record<string, boolean>>({});
+  const [uploadingReport, setUploadingReport] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [activeSectionIndex, setActiveSectionIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -142,7 +143,7 @@ export default function InspectionDetailScreen() {
       const image = await uploadService.pickImage(true);
       if (!image) return;
 
-      setUploading(true);
+      setUploadingPhoto((prev) => ({ ...prev, [questionId]: true }));
       const fileName = image.fileName || `inspection_${id}_${questionId}_${Date.now()}.jpg`;
       const fileType = image.uri.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
 
@@ -153,7 +154,7 @@ export default function InspectionDetailScreen() {
       console.error('Upload error:', error);
       Alert.alert('Error', 'No se pudo subir la foto: ' + (error.message || 'Error desconocido'));
     } finally {
-      setUploading(false);
+      setUploadingPhoto((prev) => ({ ...prev, [questionId]: false }));
     }
   };
 
@@ -219,6 +220,7 @@ export default function InspectionDetailScreen() {
       setMediaUrls(nextMediaUrls);
 
       const resolvedReportUrl =
+        data?.finalAttachmentUrl ||   // set by normalizeInspectionMedia from comments.__finalAttachmentUrl
         data?.reportUrl ||
         data?.report_url ||
         data?.inspectionPdfUrl ||
@@ -300,7 +302,7 @@ export default function InspectionDetailScreen() {
 
       if (result.canceled) return;
 
-      setUploading(true);
+      setUploadingReport(true);
       const file = result.assets[0];
       const uploadedReportUrl = await uploadService.uploadInspectionReport(
         {
@@ -319,7 +321,7 @@ export default function InspectionDetailScreen() {
       console.error('Error uploading report:', error);
       Alert.alert('Error', 'No se pudo subir el informe');
     } finally {
-      setUploading(false);
+      setUploadingReport(false);
     }
   };
 
@@ -509,9 +511,9 @@ export default function InspectionDetailScreen() {
                                 <TouchableOpacity
                                   style={styles.uploadButton}
                                   onPress={() => handleUploadImage(question.id)}
-                                  disabled={uploading}
+                                  disabled={uploadingPhoto[question.id]}
                                 >
-                                  {uploading ? (
+                                  {uploadingPhoto[question.id] ? (
                                     <ActivityIndicator size="small" color="#FFF" />
                                   ) : (
                                     <>
@@ -547,7 +549,7 @@ export default function InspectionDetailScreen() {
               title={reportUrl ? `PDF adjunto: ${reportName || 'informe.pdf'}` : 'Adjuntar informe PDF final'}
               onPress={handleUploadReport}
               variant="secondary"
-              loading={uploading}
+              loading={uploadingReport}
               style={styles.actionButton}
               icon={<Ionicons name="document-text-outline" size={20} color="#FFF" />}
             />

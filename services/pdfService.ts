@@ -22,6 +22,7 @@ const pickReportUrl = (inspection: Inspection): string | undefined => {
     inspection.report_url,
     inspection.inspectionPdfUrl,
     inspection.pdf_url,
+    (inspection as any)?.finalAttachmentUrl,   // set by normalizeInspectionMedia from comments.__finalAttachmentUrl
     (inspection as any)?.report?.url,
     (inspection as any)?.informeUrl,
     (inspection as any)?.informe_url,
