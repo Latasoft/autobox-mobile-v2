@@ -18,6 +18,7 @@ import reassignmentService, {
   isRequestExpired,
   ReassignmentRequest,
 } from '../../services/reassignmentService';
+import apiService from '../../services/apiService';
 
 export default function MechanicChangeRequestsScreen() {
   const router = useRouter();
@@ -30,6 +31,11 @@ export default function MechanicChangeRequestsScreen() {
   const [sortBy, setSortBy] = useState<'status' | 'sede' | 'date'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [selectedRequest, setSelectedRequest] = useState<ReassignmentRequest | null>(null);
+  // Mechanic picker (required when accepting: backend needs targetMechanicId)
+  const [showMechanicPicker, setShowMechanicPicker] = useState(false);
+  const [pendingAcceptRequest, setPendingAcceptRequest] = useState<ReassignmentRequest | null>(null);
+  const [availableMechanics, setAvailableMechanics] = useState<any[]>([]);
+  const [loadingMechanics, setLoadingMechanics] = useState(false);
 
   const loadData = async () => {
     try {
@@ -132,26 +138,51 @@ export default function MechanicChangeRequestsScreen() {
       return;
     }
 
+    if (!accept) {
+      // Reject: no mechanic needed, resolve directly
+      try {
+        await reassignmentService.resolveRequest(
+          request.id,
+          false,
+          undefined,
+          'Solicitud rechazada por administrador'
+        );
+        Alert.alert('Solicitud rechazada', 'La solicitud fue rechazada.');
+        setSelectedRequest(null);
+        await loadData();
+      } catch (error: any) {
+        Alert.alert('Error', error?.message || 'No se pudo rechazar la solicitud.');
+      }
+      return;
+    }
+
+    // Accept: must pick a mechanic first (backend requires targetMechanicId)
+    setPendingAcceptRequest(request);
+    setSelectedRequest(null);
+    setLoadingMechanics(true);
+    setShowMechanicPicker(true);
+    try {
+      const mechanics = await apiService.get(`/inspections/${request.inspectionId}/available-mechanics`);
+      setAvailableMechanics(Array.isArray(mechanics) ? mechanics : []);
+    } catch {
+      setAvailableMechanics([]);
+    } finally {
+      setLoadingMechanics(false);
+    }
+  };
+
+  const confirmAcceptWithMechanic = async (mechanicId: string) => {
+    if (!pendingAcceptRequest) return;
+    setShowMechanicPicker(false);
     try {
       await reassignmentService.resolveRequest(
-        request.id,
-        accept,
-        undefined,
-        accept ? 'Solicitud aprobada para reasignación' : 'Solicitud rechazada por administrador'
+        pendingAcceptRequest.id,
+        true,
+        mechanicId,
+        'Solicitud aprobada y mecánico reasignado'
       );
-
-      Alert.alert(
-        accept ? 'Solicitud aceptada' : 'Solicitud rechazada',
-        accept
-          ? 'La solicitud fue aceptada. Ahora reasigna el mecánico en la inspección.'
-          : 'La solicitud fue rechazada.'
-      );
-
-      if (accept) {
-        router.push({ pathname: '/(admin)/inspections', params: { highlightId: request.inspectionId } });
-      }
-
-      setSelectedRequest(null);
+      Alert.alert('Solicitud aceptada', 'El mecánico fue reasignado exitosamente.');
+      setPendingAcceptRequest(null);
       await loadData();
     } catch (error: any) {
       Alert.alert('Error', error?.message || 'No se pudo procesar la solicitud.');
@@ -283,6 +314,51 @@ export default function MechanicChangeRequestsScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Mechanic Picker — shown when admin accepts a request (backend requires targetMechanicId) */}
+      <Modal visible={showMechanicPicker} transparent animationType="slide" onRequestClose={() => { setShowMechanicPicker(false); setPendingAcceptRequest(null); }}>
+        <View style={styles.overlay}>
+          <View style={[styles.detailCard, { maxHeight: '75%' }]}>
+            <View style={styles.detailHeader}>
+              <Text style={styles.detailTitle}>Seleccionar mecánico</Text>
+              <TouchableOpacity onPress={() => { setShowMechanicPicker(false); setPendingAcceptRequest(null); }}>
+                <Ionicons name="close" size={22} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            {loadingMechanics ? (
+              <View style={{ padding: 24, alignItems: 'center' }}>
+                <ActivityIndicator size="large" color="#4CAF50" />
+                <Text style={{ marginTop: 8, color: '#666' }}>Cargando mecánicos...</Text>
+              </View>
+            ) : availableMechanics.length === 0 ? (
+              <Text style={{ color: '#888', textAlign: 'center', padding: 24 }}>No hay mecánicos disponibles para este horario.</Text>
+            ) : (
+              <FlatList
+                data={availableMechanics}
+                keyExtractor={(m) => m.id}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    disabled={!item.canSelect}
+                    style={[styles.mechanicItem, !item.canSelect && styles.mechanicItemDisabled]}
+                    onPress={() => confirmAcceptWithMechanic(item.id)}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.mechanicName, !item.canSelect && { color: '#AAA' }]}>
+                        {item.primerNombre} {item.primerApellido}
+                      </Text>
+                      {item.blockedReason ? (
+                        <Text style={styles.mechanicBlocked}>{item.blockedReason}</Text>
+                      ) : null}
+                    </View>
+                    {item.canSelect && <Ionicons name="chevron-forward" size={18} color="#4CAF50" />}
+                  </TouchableOpacity>
+                )}
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }
@@ -326,4 +402,8 @@ const styles = StyleSheet.create({
   detailTitle: { fontSize: 17, fontWeight: '700', color: '#333' },
   detailText: { color: '#555', marginBottom: 6 },
   detailDescription: { backgroundColor: '#FAFAFA', borderWidth: 1, borderColor: '#EEE', borderRadius: 8, padding: 10, marginBottom: 12, color: '#333' },
+  mechanicItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: '#EEE' },
+  mechanicItemDisabled: { opacity: 0.45 },
+  mechanicName: { fontSize: 14, fontWeight: '600', color: '#333' },
+  mechanicBlocked: { fontSize: 12, color: '#999', marginTop: 2 },
 });

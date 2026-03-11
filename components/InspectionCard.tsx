@@ -28,7 +28,7 @@ export const InspectionCard: React.FC<InspectionCardProps> = ({
       case 'Finalizada': return '#4CAF50';
       case 'Rechazada': return '#F44336';
       case 'Postergada': return '#FFC107';
-      case 'Cancelada': return '#795548';
+      case 'Cancelada': return '#F44336'; // Backend sets Rechazada on cancel, kept for legacy data
       default: return '#9E9E9E';
     }
   };

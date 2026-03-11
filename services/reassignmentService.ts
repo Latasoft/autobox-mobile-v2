@@ -50,10 +50,10 @@ const CREATE_REQUEST_ENDPOINTS = [
 ] as const;
 
 const LIST_REQUESTS_ENDPOINTS = [
-  '/admin/inspection-reassignment-requests',
-  '/admin/mechanic-change-requests',
-  '/inspections/reassignment-requests',
-  '/inspections/mechanic-change-requests',
+  '/inspections/mechanic-change-requests',         // ← nuevo endpoint real del controller
+  '/admin/inspection-reassignment-requests',        // legacy fallback
+  '/admin/mechanic-change-requests',               // legacy fallback
+  '/inspections/reassignment-requests',            // legacy fallback
 ] as const;
 
 const REASSIGN_ENDPOINTS = [
@@ -64,9 +64,10 @@ const REASSIGN_ENDPOINTS = [
 ] as const;
 
 const RESOLVE_ENDPOINTS = [
-  (requestId: string) => `/admin/inspection-reassignment-requests/${requestId}`,
-  (requestId: string) => `/admin/mechanic-change-requests/${requestId}`,
-  (requestId: string) => `/inspections/reassignment-requests/${requestId}`,
+  (requestId: string) => `/inspections/mechanic-change-requests/${requestId}/resolve`, // ← real
+  (requestId: string) => `/admin/inspection-reassignment-requests/${requestId}`,        // legacy
+  (requestId: string) => `/admin/mechanic-change-requests/${requestId}`,               // legacy
+  (requestId: string) => `/inspections/reassignment-requests/${requestId}`,            // legacy
 ] as const;
 
 const getInspectionCreatedAt = (inspection: Partial<Inspection> | null | undefined): string | undefined => {
@@ -97,9 +98,10 @@ const normalizeRequesterRole = (value: any): ReassignmentRequesterRole => {
 
 const normalizeStatus = (value: any): ReassignmentRequestStatus => {
   const status = String(value || '').toUpperCase();
-  if (status.includes('APPROV') || status.includes('ACCEPT')) return 'APPROVED';
-  if (status.includes('REJECT')) return 'REJECTED';
-  if (status.includes('EXPIRE') || status.includes('VENC')) return 'EXPIRED';
+  // Backend returns Spanish: pendiente, aceptada, rechazada, expirada
+  if (status.includes('ACEPT') || status.includes('APPROV') || status.includes('ACCEPT')) return 'APPROVED';
+  if (status.includes('RECHAZ') || status.includes('REJECT')) return 'REJECTED';
+  if (status.includes('EXPIR') || status.includes('VENC')) return 'EXPIRED';
   return 'PENDING';
 };
 
@@ -120,7 +122,7 @@ const normalizeRequest = (raw: any): ReassignmentRequest => {
     id: String(raw?.id || raw?.requestId || raw?._id || `${Date.now()}`),
     inspectionId: String(raw?.inspectionId || raw?.inspeccionId || raw?.inspection?.id || ''),
     description: String(raw?.description || raw?.reason || raw?.motivo || raw?.detalle || ''),
-    requesterRole: normalizeRequesterRole(raw?.requesterRole || raw?.solicitadoPor || raw?.sourceRole),
+    requesterRole: normalizeRequesterRole(raw?.requesterRole || raw?.source || raw?.solicitadoPor || raw?.sourceRole),
     status: normalizeStatus(raw?.status || raw?.estado),
     createdAt,
     expiresAt,
@@ -147,9 +149,20 @@ const extractArray = (payload: any): any[] => {
   return [];
 };
 
+const STATUS_MAP_TO_BACKEND: Record<string, string> = {
+  PENDING: 'pendiente',
+  APPROVED: 'aceptada',
+  REJECTED: 'rechazada',
+  EXPIRED: 'expirada',
+  pending: 'pendiente',
+  approved: 'aceptada',
+  rejected: 'rechazada',
+  expired: 'expirada',
+};
+
 const buildQuery = (filters: RequestFilters): string => {
   const query = new URLSearchParams();
-  if (filters.status) query.append('status', filters.status);
+  if (filters.status) query.append('status', STATUS_MAP_TO_BACKEND[filters.status] || filters.status);
   if (filters.sedeId) query.append('sedeId', filters.sedeId);
   if (filters.sortBy) query.append('sortBy', filters.sortBy);
   if (filters.order) query.append('order', filters.order);
@@ -252,15 +265,21 @@ export const reassignmentService = {
       throw new Error('Debes ingresar un motivo para solicitar el cambio de mecanico.');
     }
 
+    // Backend expects 'reason' as the primary field (not 'description')
     const payload = {
-      description,
       reason: description,
+      description,
       requesterRole: input.requesterRole,
       role: input.requesterRole,
       ttlMinutes: 5,
     };
 
-    const response = await tryPost(CREATE_REQUEST_ENDPOINTS, input.inspection.id, payload);
+    const endpointBuilders: readonly ((id: string) => string)[] = [
+      (id) => `/inspections/${id}/mechanic-change-requests`,
+      ...CREATE_REQUEST_ENDPOINTS.slice(1),
+    ];
+
+    const response = await tryPost(endpointBuilders, input.inspection.id, payload);
     return normalizeRequest(response || payload);
   },
 
@@ -286,18 +305,26 @@ export const reassignmentService = {
   },
 
   async resolveRequest(requestId: string, accept: boolean, mechanicId?: string, description?: string): Promise<void> {
-    const status = accept ? 'APPROVED' : 'REJECTED';
+    // Backend expects action: 'accept'|'reject', not status: 'APPROVED'|'REJECTED'
     const payload = {
-      status,
-      decision: status,
+      action: accept ? 'accept' : 'reject',
+      targetMechanicId: mechanicId,
+      resolutionReason: description,
+      reason: description,
+      // Legacy fallback fields kept for other possible backends
+      status: accept ? 'APPROVED' : 'REJECTED',
+      decision: accept ? 'APPROVED' : 'REJECTED',
       mechanicId,
       description,
-      reason: description,
     };
+    const endpointBuilders: readonly ((id: string) => string)[] = [
+      (id) => `/inspections/mechanic-change-requests/${id}/resolve`,
+      ...RESOLVE_ENDPOINTS,
+    ];
     try {
-      await tryPatch(RESOLVE_ENDPOINTS, requestId, payload);
+      await tryPatch(endpointBuilders, requestId, payload);
     } catch {
-      await tryPost(RESOLVE_ENDPOINTS, requestId, payload);
+      await tryPost(endpointBuilders, requestId, payload);
     }
   },
 

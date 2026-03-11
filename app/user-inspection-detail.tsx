@@ -265,7 +265,9 @@ export default function UserInspectionDetailScreen() {
 
   const isOwner = currentUser?.id === (inspection?.publicacion as any)?.vendedorId;
   const isSolicitant = currentUser?.id === inspection?.solicitanteId;
-  const canCancel = isOwner && inspection?.estado_insp !== 'Rechazada' && inspection?.estado_insp !== 'Finalizada' && inspection?.estado_insp !== 'Cancelada';
+  // Backend cancel() sets estado_insp = 'Rechazada' (not 'Cancelada').
+  // Allow solicitante AND owner to cancel (owner covers publicacion-linked inspections).
+  const canCancel = (isOwner || isSolicitant) && inspection?.estado_insp !== 'Rechazada' && inspection?.estado_insp !== 'Finalizada';
   const canRequestReassign = isSolicitant && isInsideReassignmentWindow(inspection);
 
   const handleRateMechanic = async (rating: number) => {
@@ -292,7 +294,7 @@ export default function UserInspectionDetailScreen() {
     try {
       setSubmittingReassign(true);
       await reassignmentService.createRequest({
-        inspection,
+        inspection: inspection as import('../types').Inspection,
         description: reassignDescription,
         requesterRole: 'CLIENT',
       });
