@@ -1,4 +1,6 @@
 import apiService from './apiService';
+import authService from './authService';
+import { API_URL } from '../constants/Config';
 
 // ==========================================
 // 1. DEFINICIÓN DE TIPOS
@@ -171,19 +173,41 @@ const paymentService = {
     expiresAt?: string;
     metadata?: Record<string, any>;
   }): Promise<PosPaymentRequest> {
-    const endpoints = ['/payments/pos/requests', '/payments/pos/request', '/payments/pos'];
-    let lastError: any;
-
-    for (const endpoint of endpoints) {
-      try {
-        const response = await apiService.post(endpoint, payload);
-        return normalizePosPayment(response);
-      } catch (error: any) {
-        lastError = error;
-      }
+    const token = await authService.getToken();
+    if (!token) {
+      throw new Error('No authentication token found. Please login again.');
     }
 
-    throw lastError || new Error('No se pudo crear la solicitud de pago POS');
+    const endpoint = '/payments/pos/requests';
+    const response = await fetch(`${API_URL}${endpoint}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const rawText = await response.text();
+    let parsedBody: any = null;
+    try {
+      parsedBody = rawText ? JSON.parse(rawText) : null;
+    } catch {
+      parsedBody = rawText;
+    }
+
+    if (!response.ok) {
+      console.error('❌ [POS] requestInSedePosPayment failed', {
+        endpoint,
+        statusCode: response.status,
+        responseBody: parsedBody,
+        payload,
+      });
+      const message = parsedBody?.message || `HTTP ${response.status}`;
+      throw new Error(message);
+    }
+
+    return normalizePosPayment(parsedBody);
   },
 
   async getPosPaymentRequests(filters: PosPaymentFilters = {}): Promise<PosPaymentRequest[]> {

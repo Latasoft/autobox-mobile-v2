@@ -47,6 +47,8 @@ export default function PaymentGatewayScreen() {
   const [posFlowState, setPosFlowState] = useState<'creating' | 'awaiting_user_confirmation' | 'waiting_admin_confirmation' | 'confirmed' | 'rejected' | 'expired' | 'error'>('creating');
   const [posFlowError, setPosFlowError] = useState<string | null>(null);
   const [posExpiresAt, setPosExpiresAt] = useState<string | null>(null);
+  const [posActionLoading, setPosActionLoading] = useState(false);
+  const [posPreparedIds, setPosPreparedIds] = useState<{ publicationId?: string; inspectionId?: string } | null>(null);
   const posPollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const posCompletionHandledRef = useRef(false);
   const isCancelledRef = useRef(false);
@@ -804,6 +806,41 @@ export default function PaymentGatewayScreen() {
     }
   };
 
+  const buildScheduledDateIso = (inspectionDate: any, inspectionTime: any): string => {
+    let fechaProgramada = new Date().toISOString();
+
+    if (!inspectionDate || !inspectionTime) {
+      return fechaProgramada;
+    }
+
+    try {
+      const [hours, minutes] = String(inspectionTime).split(':');
+      let dateObj: Date;
+
+      if (typeof inspectionDate === 'string') {
+        if (inspectionDate.includes('T')) {
+          dateObj = new Date(inspectionDate);
+        } else if (inspectionDate.includes('/')) {
+          const [day, month, year] = inspectionDate.split('/');
+          dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+        } else {
+          dateObj = new Date(inspectionDate);
+        }
+      } else {
+        dateObj = new Date(inspectionDate);
+      }
+
+      if (!isNaN(dateObj.getTime())) {
+        dateObj.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+        fechaProgramada = dateObj.toISOString();
+      }
+    } catch {
+      // Keep fallback current ISO date if parsing fails.
+    }
+
+    return fechaProgramada;
+  };
+
   const initializePosRequest = async () => {
     try {
       setLoading(true);
@@ -825,12 +862,84 @@ export default function PaymentGatewayScreen() {
         throw new Error('No se pudo identificar la sede de inspección');
       }
 
+      const user = await authService.getUser();
+      if (!user) {
+        throw new Error('Usuario no autenticado');
+      }
+
+      let publicationId = parsedMetadata?.publicationId ? String(parsedMetadata.publicationId) : undefined;
+      let inspectionId = parsedMetadata?.inspectionId ? String(parsedMetadata.inspectionId) : undefined;
+
+      if (!inspectionId) {
+        const backendVehicleData = {
+          patente: parsedMetadata.plate || parsedMetadata.patente,
+          marca: parsedMetadata.brand,
+          modelo: parsedMetadata.model,
+          version: parsedMetadata.version,
+          anio: typeof parsedMetadata.year === 'number' ? parsedMetadata.year : parseInt(String(parsedMetadata.year)),
+          color: parsedMetadata.color,
+          kilometraje: typeof parsedMetadata.kilometers === 'number' ? parsedMetadata.kilometers : Number(String(parsedMetadata.kilometers ?? '0').replace(/\D/g, '')),
+          transmision: parsedMetadata.transmission,
+          tipoCombustible: parsedMetadata.fuelType,
+          tipoCarroceria: parsedMetadata.bodyType,
+          puertas: typeof parsedMetadata.doors === 'number' ? parsedMetadata.doors : (Number(String(parsedMetadata.doors ?? '4').replace(/\D/g, '')) || 4),
+          vin: parsedMetadata.vin || '',
+          motor: parsedMetadata.motor || '',
+          numeroMotor: parsedMetadata.numeroMotor || '',
+          tipoVehiculo: parsedMetadata.tipoVehiculo,
+          imagenes: parsedMetadata.images || [],
+        };
+
+        const vehicleResponse = await apiService.createVehicle(backendVehicleData);
+        if (!vehicleResponse?.id) {
+          throw new Error('No se pudo crear el vehículo para el pago POS');
+        }
+
+        const publicationResponse = await apiService.createPublication({
+          vendedorId: user.id,
+          vehiculoId: vehicleResponse.id,
+          valor: typeof parsedMetadata.price === 'number' ? parsedMetadata.price : Number(String(parsedMetadata.price ?? '0').replace(/\D/g, '')),
+          descripcion: parsedMetadata.description || '',
+          estado: 'Pendiente',
+          fotos: parsedMetadata.images || [],
+        });
+
+        publicationId = publicationResponse?.id;
+        if (!publicationId) {
+          throw new Error('No se pudo crear la publicación para el pago POS');
+        }
+
+        const inspectionPrice = prices.find((p) => p.nombre.toLowerCase() === 'inspeccion')?.precio || 40000;
+        const createdInspection = await apiService.createInspection({
+          solicitanteId: user.id,
+          publicacionId: publicationId,
+          horarioId: parsedMetadata.horarioId ? Number(parsedMetadata.horarioId) : undefined,
+          fechaProgramada: buildScheduledDateIso(parsedMetadata.inspectionDate, parsedMetadata.inspectionTime),
+          valor: Math.round(Number(inspectionPrice)),
+          estado_insp: 'Pendiente',
+          estado_pago: 'Incompleto',
+        });
+
+        inspectionId = createdInspection?.id;
+        if (!inspectionId) {
+          throw new Error('No se pudo crear la inspección para el pago POS');
+        }
+      }
+
+      setPosPreparedIds({ publicationId, inspectionId });
+
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
       const request = await paymentService.requestInSedePosPayment({
         amount: Number(amount) || 0,
         sedeId,
+        publicationId,
+        inspectionId,
         expiresAt,
-        metadata: parsedMetadata,
+        metadata: {
+          ...parsedMetadata,
+          publicationId,
+          inspectionId,
+        },
       });
 
       setPosRequest(request);
@@ -851,7 +960,21 @@ export default function PaymentGatewayScreen() {
     try {
       posCompletionHandledRef.current = true;
       setLoading(true);
-      await processSuccessfulPayment(posRequest.paymentId);
+
+      const resolvedInspectionId =
+        posPreparedIds?.inspectionId ||
+        posRequest.inspectionId ||
+        (posRequest.metadata?.inspectionId ? String(posRequest.metadata.inspectionId) : undefined);
+
+      if (resolvedInspectionId) {
+        await apiService.updateInspection(resolvedInspectionId, {
+          estado_pago: 'Confirmado',
+          paymentId: posRequest.paymentId,
+        });
+      } else {
+        await processSuccessfulPayment(posRequest.paymentId);
+      }
+
       setPosFlowState('confirmed');
       stopPosPolling();
     } catch (error: any) {
@@ -899,15 +1022,21 @@ export default function PaymentGatewayScreen() {
   };
 
   const handlePosPaymentButtonPress = async () => {
-    if (!posRequest) return;
+    if (!posRequest || posActionLoading || posFlowState !== 'awaiting_user_confirmation') return;
 
-    setPosFlowState('waiting_admin_confirmation');
-    await checkPosRequestStatus();
+    setPosActionLoading(true);
 
-    if (!posPollingIntervalRef.current) {
-      posPollingIntervalRef.current = setInterval(() => {
-        void checkPosRequestStatus();
-      }, 4000);
+    try {
+      setPosFlowState('waiting_admin_confirmation');
+      await checkPosRequestStatus();
+
+      if (!posPollingIntervalRef.current) {
+        posPollingIntervalRef.current = setInterval(() => {
+          void checkPosRequestStatus();
+        }, 4000);
+      }
+    } finally {
+      setPosActionLoading(false);
     }
   };
 
@@ -1600,6 +1729,8 @@ export default function PaymentGatewayScreen() {
               title="Presiona aquí cuando hagas efectuado el pago en el comercio"
               onPress={() => { void handlePosPaymentButtonPress(); }}
               style={styles.posActionButton}
+              loading={posActionLoading}
+              disabled={posActionLoading}
             />
           )}
 
