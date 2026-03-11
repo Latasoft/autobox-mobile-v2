@@ -32,6 +32,7 @@ function AdminTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
     'mechanic-inspections',
     'mechanic-payments',
     'user-detail',
+    'mechanic-change-requests',
   ];
 
   return (
@@ -188,7 +189,8 @@ export default function AdminLayout() {
     'mechanic-detail', 
     'mechanic-inspections',
     'mechanic-payments',
-    'user-detail'
+    'user-detail',
+    'mechanic-change-requests',
   ];
   const shouldHideHeader = hideHeaderScreens.includes(currentSegment);
 
@@ -403,6 +405,13 @@ export default function AdminLayout() {
             href: null,
             tabBarStyle: { display: 'none' }
           }} 
+        />
+        <Tabs.Screen
+          name="mechanic-change-requests"
+          options={{
+            href: null,
+            tabBarStyle: { display: 'none' }
+          }}
         />
         <Tabs.Screen 
           name="notifications"  

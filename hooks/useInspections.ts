@@ -44,11 +44,22 @@ export function useInspections() {
 
   useFocusEffect(
     useCallback(() => {
+      let isMounted = true;
+      let timer: any;
+
       checkAuth().then((auth) => {
-        if (auth) {
+        if (auth && isMounted) {
           loadInspections();
+          timer = setInterval(() => {
+            loadInspections();
+          }, 15000);
         }
       });
+
+      return () => {
+        isMounted = false;
+        if (timer) clearInterval(timer);
+      };
     }, [])
   );
 

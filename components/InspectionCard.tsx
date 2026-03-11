@@ -8,9 +8,16 @@ import { downloadInspectionPdf } from '../services/pdfService';
 interface InspectionCardProps {
   inspection: Inspection;
   onPress?: () => void;
+  onRequestReassign?: () => void;
+  canRequestReassign?: boolean;
 }
 
-export const InspectionCard: React.FC<InspectionCardProps> = ({ inspection, onPress }) => {
+export const InspectionCard: React.FC<InspectionCardProps> = ({
+  inspection,
+  onPress,
+  onRequestReassign,
+  canRequestReassign = false,
+}) => {
   const [downloading, setDownloading] = useState(false);
 
   const getStatusColor = (status: string) => {
@@ -76,6 +83,12 @@ export const InspectionCard: React.FC<InspectionCardProps> = ({ inspection, onPr
           </View>
         )}
       </View>
+
+      {canRequestReassign && onRequestReassign ? (
+        <TouchableOpacity style={styles.reassignButton} onPress={onRequestReassign}>
+          <Text style={styles.reassignButtonText}>Reasignar mecanico</Text>
+        </TouchableOpacity>
+      ) : null}
 
       {inspection.estado_insp === 'Postergada' && (
         <View style={styles.cancellationContainer}>
@@ -179,6 +192,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 12,
+  },
+  reassignButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#FFE8D0',
+    borderWidth: 1,
+    borderColor: '#F57C00',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    marginBottom: 12,
+  },
+  reassignButtonText: {
+    color: '#E65100',
+    fontWeight: '700',
+    fontSize: 13,
   },
   statusBadge: {
     paddingHorizontal: 12,

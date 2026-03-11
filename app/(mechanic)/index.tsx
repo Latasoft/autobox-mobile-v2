@@ -19,6 +19,7 @@ import { Screen } from '../../components/ui/Screen';
 import { InspectionListItem } from '../../components/mechanic/InspectionListItem';
 import { Inspection } from '../../types';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { isInsideReassignmentWindow } from '../../services/reassignmentService';
 
 export default function MechanicInspectionsScreen() {
   const router = useRouter();
@@ -271,6 +272,13 @@ export default function MechanicInspectionsScreen() {
             <InspectionListItem
               inspection={item}
               onPress={() => handleInspectionPress(item)}
+              canRequestReassign={isInsideReassignmentWindow(item)}
+              onRequestReassign={() => {
+                router.push({
+                  pathname: '/(mechanic)/inspection-detail',
+                  params: { id: item.id, requestReassign: '1' }
+                });
+              }}
               onViewResult={() => {
                 router.push({
                   pathname: '/user-inspection-detail',

@@ -127,9 +127,9 @@ export const InspectionCard: React.FC<InspectionCardProps> = ({
             icon={<Ionicons name="clipboard-outline" size={16} color="#4CAF50" />}
           />
         )}
-        {!inspection.mechanicId && inspection.status !== 'cancelled' && onAssignPress && (
+        {inspection.status !== 'cancelled' && onAssignPress && (
           <Button
-            title="Asignar Mecánico"
+            title={inspection.mechanicId ? 'Reasignar Mecánico' : 'Asignar Mecánico'}
             onPress={onAssignPress}
             size="small"
             variant="secondary"

@@ -9,12 +9,16 @@ interface InspectionListItemProps {
   inspection: Inspection;
   onPress: () => void;
   onViewResult?: () => void;
+  onRequestReassign?: () => void;
+  canRequestReassign?: boolean;
 }
 
 export const InspectionListItem: React.FC<InspectionListItemProps> = ({
   inspection,
   onPress,
   onViewResult,
+  onRequestReassign,
+  canRequestReassign = false,
 }) => {
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -56,6 +60,12 @@ export const InspectionListItem: React.FC<InspectionListItemProps> = ({
           <Text style={styles.statusText}>{getStatusLabel(inspection.estado_insp)}</Text>
         </View>
       </View>
+
+      {canRequestReassign && onRequestReassign ? (
+        <TouchableOpacity style={styles.reassignButton} onPress={onRequestReassign}>
+          <Text style={styles.reassignButtonText}>Solicitar reasignación</Text>
+        </TouchableOpacity>
+      ) : null}
 
       <View style={styles.details}>
         <View style={styles.detailRow}>
@@ -127,6 +137,21 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 12,
     fontWeight: 'bold',
+  },
+  reassignButton: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: '#F57C00',
+    backgroundColor: '#FFE8D0',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    marginBottom: 10,
+  },
+  reassignButtonText: {
+    color: '#E65100',
+    fontWeight: '700',
+    fontSize: 12,
   },
   details: {
     flexDirection: 'row',

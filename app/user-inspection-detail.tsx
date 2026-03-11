@@ -16,6 +16,8 @@ import apiService from '../services/apiService';
 import authService from '../services/authService';
 import { getImageUrl } from '../utils/imageUtils';
 import { Inspection, UserRole } from '../types';
+import ReassignmentRequestModal from '../components/ReassignmentRequestModal';
+import reassignmentService, { isInsideReassignmentWindow } from '../services/reassignmentService';
 
 interface InspectionWithStatus extends Omit<Inspection, 'estado_insp'> {
   estado_insp?: 'Pendiente' | 'Confirmada' | 'En_sucursal' | 'Postergada' | 'Cancelada' | 'Rechazada' | 'Finalizada';
@@ -118,6 +120,9 @@ export default function UserInspectionDetailScreen() {
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [canceling, setCanceling] = useState(false);
   const [submittingRating, setSubmittingRating] = useState(false);
+  const [showReassignModal, setShowReassignModal] = useState(false);
+  const [reassignDescription, setReassignDescription] = useState('');
+  const [submittingReassign, setSubmittingReassign] = useState(false);
 
   useEffect(() => {
     loadUserAndTheme();
@@ -261,6 +266,7 @@ export default function UserInspectionDetailScreen() {
   const isOwner = currentUser?.id === (inspection?.publicacion as any)?.vendedorId;
   const isSolicitant = currentUser?.id === inspection?.solicitanteId;
   const canCancel = isOwner && inspection?.estado_insp !== 'Rechazada' && inspection?.estado_insp !== 'Finalizada' && inspection?.estado_insp !== 'Cancelada';
+  const canRequestReassign = isSolicitant && isInsideReassignmentWindow(inspection);
 
   const handleRateMechanic = async (rating: number) => {
     setSubmittingRating(true);
@@ -273,6 +279,31 @@ export default function UserInspectionDetailScreen() {
       Alert.alert('Error', 'No se pudo enviar la calificación.');
     } finally {
       setSubmittingRating(false);
+    }
+  };
+
+  const handleClientReassignRequest = async () => {
+    if (!inspection) return;
+    if (!reassignDescription.trim()) {
+      Alert.alert('Motivo requerido', 'Debes ingresar el motivo para cambiar de mecanico.');
+      return;
+    }
+
+    try {
+      setSubmittingReassign(true);
+      await reassignmentService.createRequest({
+        inspection,
+        description: reassignDescription,
+        requesterRole: 'CLIENT',
+      });
+      Alert.alert('Solicitud enviada', 'Tu solicitud fue enviada al administrador.');
+      setShowReassignModal(false);
+      setReassignDescription('');
+      loadData();
+    } catch (error: any) {
+      Alert.alert('Error', error?.message || 'No se pudo enviar la solicitud.');
+    } finally {
+      setSubmittingReassign(false);
     }
   };
 
@@ -356,6 +387,12 @@ export default function UserInspectionDetailScreen() {
                     </Text>
                     <Text style={styles.mechanicRatingLabel}> calificación del mecánico</Text>
                   </View>
+                )}
+
+                {canRequestReassign && (
+                  <TouchableOpacity style={styles.reassignButton} onPress={() => setShowReassignModal(true)}>
+                    <Text style={styles.reassignButtonText}>Reasignar mecanico</Text>
+                  </TouchableOpacity>
                 )}
               </>
             )}
@@ -524,6 +561,26 @@ export default function UserInspectionDetailScreen() {
           </View>
         </View>
       </Modal>
+
+      <ReassignmentRequestModal
+        visible={showReassignModal}
+        title="Reasignar mecanico"
+        subtitle="El administrador revisara esta solicitud y podra reasignar el servicio."
+        placeholder="Explica por que solicitas el cambio"
+        value={reassignDescription}
+        maxLength={250}
+        loading={submittingReassign}
+        primaryLabel="Enviar solicitud"
+        colors={{
+          primary: theme.primary,
+          light: theme.light,
+          border: theme.secondary,
+          text: theme.text,
+        }}
+        onChangeText={setReassignDescription}
+        onSubmit={handleClientReassignRequest}
+        onClose={() => setShowReassignModal(false)}
+      />
     </Screen>
   );
 }
@@ -780,6 +837,21 @@ const styles = StyleSheet.create({
   mechanicRatingLabel: {
     fontSize: 12,
     color: '#888',
+  },
+  reassignButton: {
+    alignSelf: 'flex-start',
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#F57C00',
+    backgroundColor: '#FFE8D0',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  reassignButtonText: {
+    color: '#E65100',
+    fontWeight: '700',
+    fontSize: 13,
   },
   answerImage: {
     width: '100%',

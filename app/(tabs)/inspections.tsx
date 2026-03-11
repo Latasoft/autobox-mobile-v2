@@ -1,14 +1,21 @@
-import React from 'react';
-import { View, Text, StyleSheet, FlatList, RefreshControl, TouchableOpacity } from 'react-native';
+import React, { useState } from 'react';
+import { Alert, View, Text, StyleSheet, FlatList, RefreshControl, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../../components/ui/Screen';
 import { Button } from '../../components/ui/Button';
 import { InspectionCard } from '../../components/InspectionCard';
 import { useInspections } from '../../hooks/useInspections';
+import { Inspection } from '../../types';
+import ReassignmentRequestModal from '../../components/ReassignmentRequestModal';
+import reassignmentService, { isInsideReassignmentWindow } from '../../services/reassignmentService';
 
 export default function InspectionsScreen() {
   const router = useRouter();
+  const [showReassignModal, setShowReassignModal] = useState(false);
+  const [selectedInspection, setSelectedInspection] = useState<Inspection | null>(null);
+  const [requestDescription, setRequestDescription] = useState('');
+  const [sendingRequest, setSendingRequest] = useState(false);
   const {
     isAuthenticated,
     myInspections,
@@ -48,6 +55,43 @@ export default function InspectionsScreen() {
 
   const data = activeTab === 'requests' ? myInspections : myPublicationInspections;
 
+  const openReassignModal = (inspection: Inspection) => {
+    if (!isInsideReassignmentWindow(inspection)) {
+      Alert.alert('Fuera de plazo', 'El cambio de mecanico solo se permite durante los primeros 30 minutos.');
+      return;
+    }
+
+    setSelectedInspection(inspection);
+    setRequestDescription('');
+    setShowReassignModal(true);
+  };
+
+  const handleSubmitRequest = async () => {
+    if (!selectedInspection) return;
+    if (!requestDescription.trim()) {
+      Alert.alert('Motivo requerido', 'Debes escribir un motivo para solicitar la reasignacion.');
+      return;
+    }
+
+    try {
+      setSendingRequest(true);
+      await reassignmentService.createRequest({
+        inspection: selectedInspection,
+        description: requestDescription,
+        requesterRole: 'CLIENT',
+      });
+      Alert.alert('Solicitud enviada', 'Tu solicitud fue enviada al administrador para reasignar mecanico.');
+      setShowReassignModal(false);
+      setSelectedInspection(null);
+      setRequestDescription('');
+      onRefresh();
+    } catch (error: any) {
+      Alert.alert('Error', error?.message || 'No se pudo enviar la solicitud de cambio de mecanico.');
+    } finally {
+      setSendingRequest(false);
+    }
+  };
+
   return (
     <Screen backgroundColor="#F5F5F5" edges={['left', 'right', 'bottom']}>
       <View style={styles.header}>
@@ -79,6 +123,8 @@ export default function InspectionsScreen() {
         renderItem={({ item }) => (
           <InspectionCard
             inspection={item}
+            canRequestReassign={isInsideReassignmentWindow(item)}
+            onRequestReassign={() => openReassignModal(item)}
             onPress={
               item.estado_insp === 'Pendiente'
                 ? undefined
@@ -99,6 +145,26 @@ export default function InspectionsScreen() {
             <Text style={styles.emptyText}>No tienes inspecciones en esta categoría</Text>
           </View>
         }
+      />
+
+      <ReassignmentRequestModal
+        visible={showReassignModal}
+        title="Reasignar mecanico"
+        subtitle="Describe brevemente por que quieres cambiar de mecanico."
+        placeholder="Motivo del cambio de mecanico"
+        value={requestDescription}
+        maxLength={250}
+        loading={sendingRequest}
+        primaryLabel="Enviar solicitud"
+        colors={{
+          primary: '#4CAF50',
+          light: '#E8F5E9',
+          border: '#A5D6A7',
+          text: '#1B5E20',
+        }}
+        onChangeText={setRequestDescription}
+        onClose={() => setShowReassignModal(false)}
+        onSubmit={handleSubmitRequest}
       />
     </Screen>
   );

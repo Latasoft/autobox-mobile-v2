@@ -24,6 +24,8 @@ import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view
 import { InspectionCard } from '../../components/admin/InspectionCard';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { getImageUrl } from '../../utils/imageUtils';
+import reassignmentService from '../../services/reassignmentService';
+import { Inspection } from '../../types';
 
 const { width } = Dimensions.get('window');
 
@@ -33,6 +35,7 @@ export default function AdminInspectionsScreen() {
   const [inspections, setInspections] = useState<AdminInspection[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [pendingChangeRequests, setPendingChangeRequests] = useState(0);
 
   // Search, Sort & Filter State
   const [searchQuery, setSearchQuery] = useState('');
@@ -52,13 +55,15 @@ export default function AdminInspectionsScreen() {
 
   // Assignment Modal State
   const [showAssignModal, setShowAssignModal] = useState(false);
-  const [mechanics, setMechanics] = useState<Mechanic[]>([]);
-  const [filteredMechanics, setFilteredMechanics] = useState<Mechanic[]>([]);
+  const [mechanics, setMechanics] = useState<Array<Mechanic & { isSelectable?: boolean; unavailableReason?: string }>>([]);
+  const [filteredMechanics, setFilteredMechanics] = useState<Array<Mechanic & { isSelectable?: boolean; unavailableReason?: string }>>([]);
   const [selectedInspection, setSelectedInspection] = useState<AdminInspection | null>(null);
+  const [selectedInspectionRaw, setSelectedInspectionRaw] = useState<Inspection | null>(null);
   const [selectedMechanicId, setSelectedMechanicId] = useState<string>('');
   const [searchingMechanics, setSearchingMechanics] = useState(false);
   const [mechanicSearch, setMechanicSearch] = useState('');
   const [mechanicSortOption, setMechanicSortOption] = useState<'availability' | 'rating' | 'completed' | 'pending'>('availability');
+  const [reassignReason, setReassignReason] = useState('');
 
   useEffect(() => {
     if (highlightId && inspections.length > 0) {
@@ -118,6 +123,10 @@ export default function AdminInspectionsScreen() {
       });
     }
 
+    if (selectedSede) {
+      result = result.filter((i: any) => String(i?.sedeId || i?.horario?.sede?.id || '') === selectedSede);
+    }
+
     // Sort by date
     result.sort((a, b) => {
       const dateA = new Date(a.scheduledDate).getTime();
@@ -126,7 +135,7 @@ export default function AdminInspectionsScreen() {
     });
 
     return result;
-  }, [inspections, searchQuery, sortOrder, dateFrom, dateTo]);
+  }, [inspections, searchQuery, sortOrder, dateFrom, dateTo, selectedSede]);
 
   const handleDeleteInspection = (inspection: AdminInspection) => {
     Alert.alert(
@@ -194,6 +203,7 @@ export default function AdminInspectionsScreen() {
         vehiclePatent: item.vehicle?.patent || item.vehiclePatent || item.publicacion?.vehiculo?.patente,
         vehicleBrand: item.vehicle?.brand || item.vehicleBrand || item.publicacion?.vehiculo?.marca || null,
         vehicleModel: item.vehicle?.model || item.vehicleModel || item.publicacion?.vehiculo?.modelo || null,
+        sedeId: item.horario?.sede?.id || item.sedeId,
         mechanicId: item.mechanicId || item.mechanic?.id,
         mechanicName: item.mechanicName || (item.mechanic 
           ? (`${item.mechanic.primerNombre || item.mechanic.firstName || ''} ${item.mechanic.primerApellido || item.mechanic.lastName || ''}`.trim() || item.mechanic.email || 'Mecánico')
@@ -218,50 +228,45 @@ export default function AdminInspectionsScreen() {
     }
   };
 
+  const loadPendingChangeRequests = async () => {
+    try {
+      const count = await reassignmentService.getPendingCount();
+      setPendingChangeRequests(count);
+    } catch {
+      setPendingChangeRequests(0);
+    }
+  };
+
   useFocusEffect(
     useCallback(() => {
       loadInspections();
+      loadPendingChangeRequests();
     }, [])
   );
 
   const onRefresh = async () => {
     setRefreshing(true);
     await loadInspections();
+    await loadPendingChangeRequests();
     setRefreshing(false);
   };
 
   const handleAssignMechanic = async (inspection: AdminInspection) => {
     setSelectedInspection(inspection);
-    setSelectedMechanicId(inspection.mechanicId || '');
+    setSelectedMechanicId('');
+    setReassignReason('');
     setMechanicSearch('');
     setMechanicSortOption('availability');
     setShowAssignModal(true);
     setSearchingMechanics(true);
 
     try {
-      let dateStr, timeStr;
-      // Prioritize fechaProgramada if exists, else scheduledDate
-      const dateVal = inspection.scheduledDate; // In mobile mappedData, scheduledDate holds the date
-      
-      if (dateVal) {
-        const d = new Date(dateVal);
-        // Send Local Date YYYY-MM-DD
-        const year = d.getFullYear();
-        const month = (d.getMonth() + 1).toString().padStart(2, '0');
-        const day = d.getDate().toString().padStart(2, '0');
-        dateStr = `${year}-${month}-${day}`;
-        
-        // Extract time HH:mm
-        timeStr = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
-        
-        console.log(`🔍 Buscando mecánicos disponibles para: ${dateStr} ${timeStr}`);
-      }
+      const inspectionDetails = await apiService.get(`/inspections/${inspection.id}`);
+      setSelectedInspectionRaw(inspectionDetails);
 
-      // Fetch from backend with filter
-      const availableMechanics = await adminService.getAllMechanics('', dateStr, timeStr);
-      console.log(`✅ Mecánicos encontrados: ${availableMechanics.length}`);
-      setMechanics(availableMechanics); // Store all fetched
-      setFilteredMechanics(availableMechanics); // Initial filter
+      const availableMechanics = await reassignmentService.getAvailableMechanicsForInspection(inspectionDetails);
+      setMechanics(availableMechanics);
+      setFilteredMechanics(availableMechanics);
     } catch (error) {
       console.error('Error fetching available mechanics:', error);
       Alert.alert('Error', 'No se pudieron cargar los mecánicos disponibles');
@@ -278,9 +283,9 @@ export default function AdminInspectionsScreen() {
     } else {
       const lower = text.toLowerCase();
       const filtered = mechanics.filter(m => 
-        m.firstName.toLowerCase().includes(lower) || 
-        m.lastName.toLowerCase().includes(lower) ||
-        m.email.toLowerCase().includes(lower) ||
+        m.firstName?.toLowerCase().includes(lower) || 
+        m.lastName?.toLowerCase().includes(lower) ||
+        m.email?.toLowerCase().includes(lower) ||
         (m.specialization && m.specialization.toLowerCase().includes(lower))
       );
       setFilteredMechanics(filtered);
@@ -288,25 +293,34 @@ export default function AdminInspectionsScreen() {
   };
 
   const confirmAssignMechanic = async () => {
-    if (!selectedInspection || !selectedMechanicId) {
+    if (!selectedInspection || !selectedInspectionRaw || !selectedMechanicId) {
       Alert.alert('Error', 'Selecciona un mecánico');
+      return;
+    }
+
+    if (!reassignReason.trim()) {
+      Alert.alert('Motivo requerido', 'Debes ingresar una descripcion del motivo de la reasignacion.');
+      return;
+    }
+
+    const selectedMechanic = mechanics.find((item) => item.id === selectedMechanicId);
+    if (!selectedMechanic?.isSelectable) {
+      Alert.alert('Mecánico no disponible', selectedMechanic?.unavailableReason || 'No se puede seleccionar este mecánico para ese horario.');
       return;
     }
 
     try {
       setLoading(true);
-      // Call backend to assign (creates request)
-      // Note: adminService.assignInspectionToMechanic might not exist in mobile service yet, checking...
-      // It seems mobile adminService doesn't have assignInspectionToMechanic based on previous read.
-      // I'll use apiService directly or add it to adminService.
-      // Let's check apiService or use a direct fetch if needed.
-      // Actually, let's assume we need to add it or use a generic post.
-      
-      // Using apiService to post to the endpoint
-      await apiService.patch(`/inspections/${selectedInspection.id}/assign-mechanic`, { mechanicId: selectedMechanicId });
-      
-      Alert.alert('Solicitud Enviada', 'Se ha enviado una solicitud al mecánico. La inspección se asignará cuando acepte.');
+      await reassignmentService.reassignMechanic({
+        inspection: selectedInspectionRaw,
+        mechanicId: selectedMechanicId,
+        description: reassignReason,
+      });
+
+      Alert.alert('Exito', 'Mecánico reasignado correctamente.');
       setShowAssignModal(false);
+      setSelectedInspectionRaw(null);
+      setReassignReason('');
       loadInspections(); 
     } catch (error: any) {
       console.error('Error al asignar mecánico:', error);
@@ -342,6 +356,22 @@ export default function AdminInspectionsScreen() {
     <Screen style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Inspecciones</Text>
+        <TouchableOpacity
+          style={[
+            styles.requestsButton,
+            pendingChangeRequests > 0 ? styles.requestsButtonPending : styles.requestsButtonIdle,
+          ]}
+          onPress={() => router.push('/(admin)/mechanic-change-requests')}
+        >
+          <Text
+            style={[
+              styles.requestsButtonText,
+              pendingChangeRequests > 0 ? styles.requestsButtonTextPending : styles.requestsButtonTextIdle,
+            ]}
+          >
+            Solicitud cambio mecánico{pendingChangeRequests > 0 ? ` (${pendingChangeRequests})` : ''}
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {/* Search & Filter Bar */}
@@ -611,7 +641,7 @@ export default function AdminInspectionsScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Asignar Mecánico</Text>
+              <Text style={styles.modalTitle}>Reasignar Mecánico</Text>
               <TouchableOpacity onPress={() => setShowAssignModal(false)}>
                 <Ionicons name="close" size={28} color="#666" />
               </TouchableOpacity>
@@ -628,6 +658,17 @@ export default function AdminInspectionsScreen() {
                   </Text>
                 </View>
               )}
+
+              <TextInput
+                style={styles.reasonInput}
+                placeholder="Motivo de la reasignación"
+                value={reassignReason}
+                onChangeText={setReassignReason}
+                multiline
+                numberOfLines={3}
+                maxLength={250}
+              />
+              <Text style={styles.reasonCounter}>{reassignReason.length}/250</Text>
 
               {/* Search Bar */}
               <View style={styles.mechanicSearchContainer}>
@@ -674,9 +715,16 @@ export default function AdminInspectionsScreen() {
                         key={mechanic.id}
                         style={[
                           styles.mechanicCard,
-                          selectedMechanicId === mechanic.id && styles.mechanicCardSelected
+                          selectedMechanicId === mechanic.id && styles.mechanicCardSelected,
+                          mechanic.isSelectable === false && styles.mechanicCardDisabled,
                         ]}
-                        onPress={() => setSelectedMechanicId(mechanic.id)}
+                        onPress={() => {
+                          if (mechanic.isSelectable === false) {
+                            Alert.alert('Mecánico no disponible', mechanic.unavailableReason || 'No se puede seleccionar ese mecánico para este horario.');
+                            return;
+                          }
+                          setSelectedMechanicId(mechanic.id);
+                        }}
                       >
                         <View style={styles.mechanicCardHeader}>
                           <View style={styles.mechanicCardInfo}>
@@ -689,8 +737,11 @@ export default function AdminInspectionsScreen() {
                                 📋 {mechanic.specialization}
                               </Text>
                             )}
+                            {mechanic.isSelectable === false && mechanic.unavailableReason ? (
+                              <Text style={styles.unavailableReasonText}>{mechanic.unavailableReason}</Text>
+                            ) : null}
                           </View>
-                          {selectedMechanicId === mechanic.id && (
+                          {selectedMechanicId === mechanic.id && mechanic.isSelectable !== false && (
                             <Ionicons name="checkmark-circle" size={24} color="#4CAF50" />
                           )}
                         </View>
@@ -705,7 +756,7 @@ export default function AdminInspectionsScreen() {
                 onPress={confirmAssignMechanic}
                 disabled={!selectedMechanicId}
               >
-                <Text style={styles.confirmButtonText}>Confirmar Asignación</Text>
+                <Text style={styles.confirmButtonText}>Reasignar</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -730,6 +781,32 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
     color: '#333',
+  },
+  requestsButton: {
+    marginTop: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    alignSelf: 'flex-start',
+  },
+  requestsButtonIdle: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#BDBDBD',
+  },
+  requestsButtonPending: {
+    backgroundColor: '#FFF8CC',
+    borderColor: '#FFC107',
+  },
+  requestsButtonText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  requestsButtonTextIdle: {
+    color: '#757575',
+  },
+  requestsButtonTextPending: {
+    color: '#8A6D00',
   },
   // Filter Bar Styles
   filterBar: {
@@ -909,6 +986,23 @@ const styles = StyleSheet.create({
     color: '#333',
     marginBottom: 4,
   },
+  reasonInput: {
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    backgroundColor: '#FAFAFA',
+    borderRadius: 8,
+    minHeight: 80,
+    textAlignVertical: 'top',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 4,
+  },
+  reasonCounter: {
+    textAlign: 'right',
+    color: '#888',
+    fontSize: 12,
+    marginBottom: 12,
+  },
   mechanicSearchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -965,6 +1059,11 @@ const styles = StyleSheet.create({
     borderColor: '#4CAF50',
     backgroundColor: '#F1F8F4',
   },
+  mechanicCardDisabled: {
+    opacity: 0.6,
+    borderColor: '#BDBDBD',
+    backgroundColor: '#FAFAFA',
+  },
   mechanicCardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -988,6 +1087,12 @@ const styles = StyleSheet.create({
   mechanicCardSpec: {
     fontSize: 12,
     color: '#4CAF50',
+  },
+  unavailableReasonText: {
+    marginTop: 5,
+    color: '#D84315',
+    fontSize: 12,
+    fontWeight: '600',
   },
   confirmButton: {
     backgroundColor: '#4CAF50',

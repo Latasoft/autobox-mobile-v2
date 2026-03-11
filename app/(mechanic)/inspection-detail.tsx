@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -26,11 +26,13 @@ import { INSPECTION_SECTIONS } from '../../constants/InspectionForm';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { getImageUrl } from '../../utils/imageUtils';
 import { downloadInspectionPdf } from '../../services/pdfService';
+import ReassignmentRequestModal from '../../components/ReassignmentRequestModal';
+import reassignmentService, { isInsideReassignmentWindow } from '../../services/reassignmentService';
 
 const NOT_EXAMINED_TEXT = 'Aspecto no examinado';
 
 export default function InspectionDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, requestReassign } = useLocalSearchParams<{ id: string; requestReassign?: string }>();
   const router = useRouter();
   const [inspection, setInspection] = useState<Inspection | null>(null);
   const [loading, setLoading] = useState(true);
@@ -45,6 +47,11 @@ export default function InspectionDetailScreen() {
   const [reportName, setReportName] = useState('');
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [cancellationReason, setCancellationReason] = useState('');
+  const [showReassignModal, setShowReassignModal] = useState(false);
+  const [reassignDescription, setReassignDescription] = useState('');
+  const [sendingReassign, setSendingReassign] = useState(false);
+  const [awaitingAdminDecision, setAwaitingAdminDecision] = useState(false);
+  const [requestedFromMechanicId, setRequestedFromMechanicId] = useState<string | null>(null);
 
   const handleAnswer = (questionId: string, value: string) => {
     setAnswers((prev) => ({ ...prev, [questionId]: value }));
@@ -185,6 +192,17 @@ export default function InspectionDetailScreen() {
       const data = await apiService.get(`/inspections/${id}`);
       setInspection(data);
 
+      if (
+        awaitingAdminDecision &&
+        requestedFromMechanicId &&
+        data?.mecanicoId &&
+        data.mecanicoId !== requestedFromMechanicId
+      ) {
+        setAwaitingAdminDecision(false);
+        setRequestedFromMechanicId(null);
+        Alert.alert('Exito', 'Turno reasignado exitosamente');
+      }
+
       const nextAnswers = { ...(data?.answers || {}) };
       // Strip the internal __finalAttachmentUrl and nested mediaUrls keys from comments
       // before spreading so only text-answer keys remain.
@@ -250,6 +268,21 @@ export default function InspectionDetailScreen() {
       }
     }, [id])
   );
+
+  useEffect(() => {
+    if (!awaitingAdminDecision) return;
+    const timer = setInterval(() => {
+      loadInspection();
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [awaitingAdminDecision]);
+
+  useEffect(() => {
+    if (requestReassign !== '1') return;
+    if (!inspection) return;
+    if (!isInsideReassignmentWindow(inspection)) return;
+    setShowReassignModal(true);
+  }, [requestReassign, inspection?.id]);
 
   const handleStartInspection = async () => {
     try {
@@ -325,6 +358,32 @@ export default function InspectionDetailScreen() {
     }
   };
 
+  const handleMechanicReassignRequest = async () => {
+    if (!inspection) return;
+    if (!reassignDescription.trim()) {
+      Alert.alert('Motivo requerido', 'Debes escribir los motivos de la reasignacion.');
+      return;
+    }
+
+    try {
+      setSendingReassign(true);
+      await reassignmentService.createRequest({
+        inspection,
+        description: reassignDescription,
+        requesterRole: 'MECHANIC',
+      });
+      setShowReassignModal(false);
+      setReassignDescription('');
+      setAwaitingAdminDecision(true);
+      setRequestedFromMechanicId(inspection.mecanicoId || null);
+      Alert.alert('Solicitud enviada', 'Debes esperar en esta pagina la decision del administrador.');
+    } catch (error: any) {
+      Alert.alert('Error', error?.message || 'No se pudo enviar la solicitud.');
+    } finally {
+      setSendingReassign(false);
+    }
+  };
+
   if (loading) {
     return (
       <Screen style={styles.loadingContainer}>
@@ -372,6 +431,16 @@ export default function InspectionDetailScreen() {
             <Text style={styles.label}>Direccion:</Text>
             <Text style={styles.value}>{address}</Text>
           </View>
+
+          {isInsideReassignmentWindow(inspection) && (
+            <TouchableOpacity style={styles.reassignButton} onPress={() => setShowReassignModal(true)}>
+              <Text style={styles.reassignButtonText}>Solicitar reasignacion</Text>
+            </TouchableOpacity>
+          )}
+
+          {awaitingAdminDecision && (
+            <Text style={styles.awaitingText}>Solicitud en revision del administrador...</Text>
+          )}
         </Card>
 
         {inspection.estado_insp === 'Confirmada' && (
@@ -726,6 +795,26 @@ export default function InspectionDetailScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <ReassignmentRequestModal
+        visible={showReassignModal}
+        title="Solicitar reasignacion"
+        subtitle="Describe por que no puedes realizar esta inspeccion."
+        placeholder="Motivo de la reasignacion"
+        value={reassignDescription}
+        maxLength={250}
+        loading={sendingReassign}
+        primaryLabel="Enviar solicitud"
+        colors={{
+          primary: '#FF9800',
+          light: '#FFF3E0',
+          border: '#F57C00',
+          text: '#E65100',
+        }}
+        onChangeText={setReassignDescription}
+        onSubmit={handleMechanicReassignRequest}
+        onClose={() => setShowReassignModal(false)}
+      />
     </Screen>
   );
 }
@@ -774,6 +863,26 @@ const styles = StyleSheet.create({
   value: {
     color: '#333',
     flex: 1,
+  },
+  reassignButton: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: '#F57C00',
+    backgroundColor: '#FFE8D0',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginTop: 10,
+  },
+  reassignButtonText: {
+    color: '#E65100',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  awaitingText: {
+    marginTop: 10,
+    color: '#E65100',
+    fontWeight: '600',
   },
   actionButton: {
     marginVertical: 8,
