@@ -14,6 +14,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import authService from '../../services/authService';
 import apiService from '../../services/apiService';
+import socketService from '../../services/socketService';
 import { useEffect, useState, useCallback } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
@@ -33,6 +34,7 @@ function AdminTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
     'mechanic-payments',
     'user-detail',
     'mechanic-change-requests',
+    'chat-detail',
   ];
 
   return (
@@ -100,6 +102,7 @@ export default function AdminLayout() {
   const router = useRouter();
   const segments = useSegments();
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
+  const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [isChecking, setIsChecking] = useState(true);
 
@@ -138,6 +141,40 @@ export default function AdminLayout() {
 
     validateAdminAccess();
   }, [router]);
+
+  // Conectar WebSocket para recibir mensajes de chat en tiempo real
+  useEffect(() => {
+    const setupSocket = async () => {
+      try {
+        await socketService.connect();
+
+        const handleConversationsLoaded = (conversations: any[]) => {
+          const totalUnread = conversations.reduce((sum: number, conv: any) => sum + (conv.unreadCount || 0), 0);
+          setUnreadMessagesCount(totalUnread);
+        };
+
+        const handleNewMessage = () => {
+          socketService.loadConversations();
+        };
+
+        socketService.on('conversations_loaded', handleConversationsLoaded);
+        socketService.on('new_message', handleNewMessage);
+
+        await socketService.loadConversations();
+
+        return () => {
+          socketService.off('conversations_loaded', handleConversationsLoaded);
+          socketService.off('new_message', handleNewMessage);
+        };
+      } catch (error) {
+        console.error('Error al conectar chat admin:', error);
+      }
+    };
+
+    if (isAuthorized) {
+      setupSocket();
+    }
+  }, [isAuthorized]);
 
   const fetchUnreadNotifications = async () => {
     try {
@@ -179,6 +216,10 @@ export default function AdminLayout() {
     router.push('/(admin)/notifications');
   };
 
+  const handleChatPress = () => {
+    router.push('/(admin)/chat');
+  };
+
   // No mostrar header en pantallas específicas
   const currentSegment = segments[segments.length - 1];
   const hideHeaderScreens = [
@@ -191,6 +232,7 @@ export default function AdminLayout() {
     'mechanic-payments',
     'user-detail',
     'mechanic-change-requests',
+    'chat-detail',
   ];
   const shouldHideHeader = hideHeaderScreens.includes(currentSegment);
 
@@ -225,6 +267,16 @@ export default function AdminLayout() {
           <View style={styles.header}>
             <Text style={styles.appTitle}>AutoBox - Admin</Text>
             <View style={styles.headerIcons}>
+              <TouchableOpacity style={styles.headerIcon} onPress={handleChatPress}>
+                <Ionicons name="chatbubbles-outline" size={24} color="#FFFFFF" />
+                {unreadMessagesCount > 0 && (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>
+                      {unreadMessagesCount > 99 ? '99+' : unreadMessagesCount}
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
               <TouchableOpacity style={styles.headerIcon} onPress={handleNotificationsPress}>
                 <Ionicons name="notifications-outline" size={24} color="#FFFFFF" />
                 {unreadNotificationsCount > 0 && (
@@ -408,6 +460,43 @@ export default function AdminLayout() {
         />
         <Tabs.Screen
           name="mechanic-change-requests"
+          options={{
+            href: null,
+            tabBarStyle: { display: 'none' }
+          }}
+        />
+        <Tabs.Screen 
+          name="chat"
+          options={{
+            title: 'Chat',
+            tabBarIcon: ({ color, size }) => (
+              <View>
+                <Ionicons name="chatbubbles" size={size} color={color} />
+                {unreadMessagesCount > 0 && (
+                  <View style={{
+                    position: 'absolute',
+                    right: -6,
+                    top: -3,
+                    backgroundColor: 'red',
+                    borderRadius: 8,
+                    width: 16,
+                    height: 16,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    borderWidth: 1,
+                    borderColor: 'white'
+                  }}>
+                    <Text style={{ color: 'white', fontSize: 10, fontWeight: 'bold' }}>
+                      {unreadMessagesCount > 9 ? '9+' : unreadMessagesCount}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            ),
+          }}
+        />
+        <Tabs.Screen 
+          name="chat-detail"
           options={{
             href: null,
             tabBarStyle: { display: 'none' }

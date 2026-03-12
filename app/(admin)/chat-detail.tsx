@@ -6,7 +6,7 @@ import { Screen } from '../../components/ui/Screen';
 import { useChatMessages } from '../../hooks/useChat';
 import { getImageUrl } from '../../utils/imageUtils';
 
-export default function ChatDetailScreen() {
+export default function AdminChatDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const chatId = (params.chatId || params.userId) as string;
@@ -190,7 +190,7 @@ const styles = StyleSheet.create({
   },
   myMessage: {
     alignSelf: 'flex-end',
-    backgroundColor: '#4CAF50',
+    backgroundColor: '#007bff',
     borderBottomRightRadius: 4,
   },
   otherMessage: {
@@ -252,7 +252,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#4CAF50',
+    backgroundColor: '#007bff',
     justifyContent: 'center',
     alignItems: 'center',
   },
