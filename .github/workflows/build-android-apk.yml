@@ -40,9 +40,6 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Install dependencies
         run: npm ci
 
@@ -58,6 +55,7 @@ jobs:
             exit 1
           fi
           eas whoami
+          eas project:info
 
       - name: Print tool versions
         run: |
