@@ -75,7 +75,6 @@ jobs:
             --profile $BUILD_PROFILE \
             --local \
             --non-interactive \
-            --verbose \
             --output ./build/app.apk
 
       - name: Upload APK artifact
