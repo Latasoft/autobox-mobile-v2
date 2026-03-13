@@ -4,6 +4,9 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       profile:
@@ -67,10 +70,11 @@ jobs:
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           EAS_LOCAL_BUILD_SKIP_CLEANUP: '1'
+          BUILD_PROFILE: ${{ github.event.inputs.profile || 'preview' }}
         run: |
           eas build \
             --platform android \
-            --profile ${{ github.event.inputs.profile }} \
+            --profile $BUILD_PROFILE \
             --local \
             --non-interactive \
             --verbose \
@@ -79,6 +83,6 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: autobox-${{ github.event.inputs.profile }}-${{ github.run_number }}
+          name: autobox-${{ github.event.inputs.profile || 'preview' }}-${{ github.run_number }}
           path: build/app.apk
           retention-days: 7
